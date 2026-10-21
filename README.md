@@ -33,7 +33,7 @@ Todos os servidores entram por http://127.0.0.1:5000/colegiado com e-mail instit
 |---|---|---|
 | Membro do colegiado de extensão | `/colegiado/certificados` | Vê os certificados **agrupados por aluno** e valida (com carga horária e nº da reunião) ou recusa cada um |
 | Coordenador(a) de curso | `/coordenacao` | Vê os certificados **validados** dos cursos que coordena, marca cada um como **lançado no histórico do aluno** e acompanha o total de horas por aluno |
-| Superusuário | `/superusuario` | Cadastra membros do colegiado e coordenadores(as) com senha inicial e desativa acessos. Na aba **Alunos** (`/superusuario/alunos`), busca alunos e edita nome, matrícula, curso, currículo e senha, além de bloquear ou liberar o acesso |
+| Superusuário | `/superusuario` | Cadastra membros do colegiado e coordenadores(as) com senha inicial e desativa acessos. Na aba **Alunos** (`/superusuario/alunos`), cadastra alunos (com ou sem senha inicial), busca alunos e edita nome, matrícula, curso, currículo e senha, além de bloquear ou liberar o acesso |
 
 Cursos que podem ser vinculados a um(a) coordenador(a): Engenharia Automotiva, Engenharia Aeroespacial, Engenharia Eletrônica, Engenharia de Energia e Engenharia de Software (lista fixa em `CURSOS_FCTE`, no `app.py`). O aluno escolhe um desses cursos no primeiro acesso.
 
@@ -47,7 +47,7 @@ python -m flask --app app criar-superusuario nome@unb.br "Nome Completo"
 
 ## Configuração inicial
 
-1. **Alunos** — não há lista prévia: qualquer aluno se cadastra pelo **primeiro acesso**, informando nome completo, matrícula, curso (um dos cinco da FCTE) e número do currículo. O link para criar a senha vai para o e-mail institucional `matrícula@aluno.unb.br`, o que garante que só o dono da matrícula conclui o cadastro. Enquanto a senha não for criada, o aluno pode refazer o primeiro acesso para corrigir os dados.
+1. **Alunos** — não há lista prévia: o superusuário pode cadastrar alunos na aba **Alunos**, e qualquer aluno também pode se cadastrar pelo **primeiro acesso**, informando nome completo, matrícula, curso (um dos cinco da FCTE) e número do currículo. O link para criar a senha vai para o e-mail institucional `matrícula@aluno.unb.br`, o que garante que só o dono da matrícula conclui o cadastro. Enquanto a senha não for criada, o aluno pode refazer o primeiro acesso para corrigir os dados.
 
 2. **Professores credenciados** (só e-mails `@unb.br`):
 

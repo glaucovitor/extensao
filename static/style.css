@@ -195,3 +195,5 @@ tr.inativo td { color: var(--suave); background: #fafbfc; }
 /* Link "Alterar senha" no topo */
 .link-topo { color: #fff; opacity: .8; font-size: .85rem; }
 .link-topo:hover { opacity: 1; }
+.barra-lista { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .6rem; flex-wrap: wrap; }
+.barra-lista .mini-info { margin: 0; }

@@ -1,4 +1,4 @@
 <nav class="abas">
   <a href="{{ url_for('super_painel') }}" class="aba {{ 'ativa' if request.endpoint in ('super_painel',) }}">Servidores</a>
-  <a href="{{ url_for('super_alunos') }}" class="aba {{ 'ativa' if request.endpoint in ('super_alunos', 'super_editar_aluno') }}">Alunos</a>
+  <a href="{{ url_for('super_alunos') }}" class="aba {{ 'ativa' if request.endpoint in ('super_alunos', 'super_editar_aluno', 'super_novo_aluno') }}">Alunos</a>
 </nav>

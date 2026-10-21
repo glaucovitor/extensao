@@ -1104,6 +1104,38 @@ def super_alunos():
                            situacao=situacao, cursos=CURSOS_FCTE)
 
 
+@app.route("/superusuario/aluno/novo", methods=["GET", "POST"])
+@servidor_requerido("superusuario")
+def super_novo_aluno():
+    """Cadastro de aluno pelo superusuário. Com senha, o aluno já pode entrar;
+    sem senha, ele conclui o cadastro pelo primeiro acesso (link no e-mail)."""
+    dados, ativo = {"curso": ""}, 1
+    if request.method == "POST":
+        dados, erros = valida_dados_aluno(request.form)
+        senha = request.form.get("senha", "")
+        ativo = 1 if request.form.get("ativo") else 0
+        db = get_db()
+        if not erros and db.execute("SELECT 1 FROM alunos WHERE matricula = ?",
+                                    (dados["matricula"],)).fetchone():
+            erros.append(f"Já existe um aluno com a matrícula {dados['matricula']}.")
+        if erros:
+            for e in erros:
+                flash(e, "erro")
+        else:
+            with db:
+                db.execute(
+                    """INSERT INTO alunos (matricula, nome, curso, curriculo, senha_hash, ativo)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (dados["matricula"], dados["nome"], dados["curso"], dados["curriculo"],
+                     generate_password_hash(senha) if senha else None, ativo))
+            flash(f"Aluno {dados['nome']} cadastrado. " + (
+                "Informe a senha a ele." if senha else
+                "Sem senha definida: ele conclui o cadastro pelo primeiro acesso."), "ok")
+            return redirect(url_for("super_alunos", busca=dados["matricula"]))
+    return render_template("super_aluno_editar.html", aluno=None, dados=dados,
+                           ativo=ativo, cursos=CURSOS_FCTE)
+
+
 @app.route("/superusuario/aluno/<matricula>", methods=["GET", "POST"])
 @servidor_requerido("superusuario")
 def super_editar_aluno(matricula):

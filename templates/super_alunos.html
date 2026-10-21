@@ -3,7 +3,7 @@
 {% block usuario %}{% include "_servidor_topo.html" %}{% endblock %}
 {% block conteudo %}
 <h1>Administração do sistema</h1>
-<p class="sub">Alunos cadastrados no sistema. Clique em "Editar" para corrigir dados, redefinir a senha ou bloquear o acesso.</p>
+<p class="sub">Alunos cadastrados no sistema. Cadastre novos alunos ou clique em "Editar" para corrigir dados, redefinir a senha ou bloquear o acesso.</p>
 {% include "_super_abas.html" %}
 
 <form method="get" class="filtros barra-filtros">
@@ -28,7 +28,10 @@
   {% if busca or curso or situacao %}<a class="btn btn-secundario" href="{{ url_for('super_alunos') }}">Limpar</a>{% endif %}
 </form>
 
-<p class="mini-info">{{ alunos|length }} aluno{{ 's' if alunos|length != 1 }} encontrado{{ 's' if alunos|length != 1 }}</p>
+<div class="barra-lista">
+  <p class="mini-info">{{ alunos|length }} aluno{{ 's' if alunos|length != 1 }} encontrado{{ 's' if alunos|length != 1 }}</p>
+  <a class="btn btn-primario" href="{{ url_for('super_novo_aluno') }}">+ Cadastrar aluno</a>
+</div>
 
 {% if not alunos %}
   <p class="cartao vazio">Nenhum aluno encontrado com esses filtros.</p>
