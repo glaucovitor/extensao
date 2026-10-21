@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block titulo %}Meus certificados{% endblock %}
+{% block usuario %}
+<div class="usuario">
+  <span>{{ aluno.nome }}</span>
+  <a class="btn btn-claro" href="{{ url_for('sair') }}">Sair</a>
+</div>
+{% endblock %}
+{% block conteudo %}
+<section class="identificacao">
+  <div><span class="rotulo">Aluno</span><strong>{{ aluno.nome }}</strong></div>
+  <div><span class="rotulo">Matrícula</span><strong>{{ aluno.matricula }}</strong></div>
+  <div><span class="rotulo">Curso</span><strong>{{ aluno.curso }}</strong></div>
+  <div><span class="rotulo">Currículo</span><strong>{{ aluno.curriculo or '—' }}</strong></div>
+  <div class="destaque"><span class="rotulo">Horas validadas</span><strong>{{ totais.validadas|horas }}</strong></div>
+  <div><span class="rotulo">Em avaliação</span><strong>{{ totais.pendentes|horas }}</strong></div>
+</section>
+
+<div class="duas-colunas">
+  <section class="cartao">
+    <h2>Enviar novo certificado</h2>
+    <form method="post" action="{{ url_for('enviar_certificado') }}" enctype="multipart/form-data" class="form" id="form-envio">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <fieldset class="atuacao">
+        <legend>Você atuou como:</legend>
+        <label class="opcao"><input type="radio" name="atuacao" value="participante" required> Participante efetivo</label>
+        <label class="opcao"><input type="radio" name="atuacao" value="ouvinte"> Ouvinte</label>
+      </fieldset>
+      <div class="aviso aviso-erro" id="msg-ouvinte" hidden>
+        Certificados de <strong>ouvinte</strong> não são aceitos. O sistema só aceita certificados em que você atuou como participante efetivo do evento.
+      </div>
+
+      <div id="campos-envio">
+        <label>Quantidade de horas cumpridas
+          <input name="horas" type="number" min="0.5" max="1000" step="0.5" required>
+        </label>
+        <div class="linha">
+          <label>Início
+            <input name="data_inicio" type="date" max="{{ hoje }}" required>
+          </label>
+          <label>Término
+            <input name="data_fim" type="date" max="{{ hoje }}" required>
+          </label>
+        </div>
+        <label>Certificado (PDF, até 25 MB)
+          <input name="arquivo" type="file" accept="application/pdf,.pdf" required id="arquivo">
+        </label>
+        <button class="btn btn-primario" type="submit" id="btn-enviar">Enviar certificado</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="cartao">
+    <h2>Certificados enviados</h2>
+    {% if not certs %}
+      <p class="vazio">Você ainda não enviou nenhum certificado.</p>
+    {% else %}
+      <ul class="lista-certs">
+        {% for c in certs %}
+          <li class="cert">
+            <div class="cert-topo">
+              <a href="{{ url_for('arquivo_aluno', cid=c.id) }}" target="_blank" class="cert-nome">{{ c.nome_original }}</a>
+              <span class="selo selo-{{ c.status }}">{{ STATUS[c.status] }}</span>
+            </div>
+            <div class="cert-info">
+              {{ c.horas|horas }} · {{ c.data_inicio|data_br }} a {{ c.data_fim|data_br }} · enviado em {{ c.enviado_em|data_br }}
+            </div>
+            {% if c.status == 'validado' %}
+              <div class="validado-info"><strong>Carga horária validada:</strong> {{ c.horas_validadas|horas }}
+                {% if c.horas_validadas != c.horas %}(de {{ c.horas|horas }} informadas){% endif %}
+                {% if c.reuniao %}<br><strong>Reunião do colegiado de extensão:</strong> {{ c.reuniao }}{% endif %}
+                {% if c.lancado_em %}<br><strong>Lançado no seu histórico</strong> em {{ c.lancado_em|data_br }}{% endif %}</div>
+            {% endif %}
+            {% if c.status == 'recusado' and c.motivo %}
+              <div class="motivo"><strong>Motivo da recusa:</strong> {{ c.motivo }}</div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  (function () {
+    const form = document.getElementById('form-envio');
+    const msg = document.getElementById('msg-ouvinte');
+    const campos = document.getElementById('campos-envio');
+    function atualiza() {
+      const sel = form.querySelector('input[name=atuacao]:checked');
+      const ouvinte = sel && sel.value === 'ouvinte';
+      msg.hidden = !ouvinte;
+      campos.querySelectorAll('input, button').forEach(el => el.disabled = ouvinte);
+      campos.classList.toggle('desabilitado', ouvinte);
+    }
+    form.querySelectorAll('input[name=atuacao]').forEach(r => r.addEventListener('change', atualiza));
+
+    const ini = form.data_inicio, fim = form.data_fim;
+    ini.addEventListener('change', () => { fim.min = ini.value; });
+
+    form.addEventListener('submit', e => {
+      const f = document.getElementById('arquivo').files[0];
+      if (f && f.size > 25 * 1024 * 1024) {
+        e.preventDefault();
+        alert('O arquivo excede o limite de 25 MB.');
+      }
+    });
+    atualiza();
+  })();
+</script>
+{% endblock %}

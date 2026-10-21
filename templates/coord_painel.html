@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block titulo %}Coordenação de curso{% endblock %}
+{% block usuario %}{% include "_servidor_topo.html" %}{% endblock %}
+{% block conteudo %}
+<div class="cabecalho-admin">
+  <div>
+    <h1>Certificados validados</h1>
+    <p class="sub">Certificados validados pelo colegiado de extensão para
+      {% if cursos|length == 1 %}o curso de <strong>{{ cursos[0] }}</strong>{% else %}os cursos que você coordena{% endif %}.</p>
+  </div>
+  {% if cursos %}
+  <form method="get" class="filtros">
+    <input type="hidden" name="visao" value="{{ visao }}">
+    {% if cursos|length > 1 %}
+    <label>Curso
+      <select name="curso" onchange="this.form.submit()">
+        <option value="">Todos os meus cursos</option>
+        {% for c in cursos %}<option value="{{ c }}" {{ 'selected' if c == curso }}>{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endif %}
+    <label>Buscar aluno
+      <input name="busca" value="{{ busca }}" placeholder="Nome ou matrícula">
+    </label>
+    <button class="btn btn-primario">Filtrar</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if not cursos %}
+  <p class="cartao vazio">Nenhum curso está vinculado ao seu cadastro. Procure a administração do sistema.</p>
+{% else %}
+<nav class="abas">
+  <a href="{{ url_for('coord_painel', visao='certificados', curso=curso, busca=busca) }}" class="aba {{ 'ativa' if visao != 'alunos' }}">
+    Certificados <span class="contador">{{ certs|length }}</span></a>
+  <a href="{{ url_for('coord_painel', visao='alunos', curso=curso, busca=busca) }}" class="aba {{ 'ativa' if visao == 'alunos' }}">
+    Total por aluno <span class="contador">{{ resumo|length }}</span></a>
+</nav>
+
+{% if visao == 'alunos' %}
+  {% if not resumo %}<p class="cartao vazio">Nenhum aluno com certificado validado.</p>{% else %}
+  <div class="tabela-wrap">
+  <table class="tabela">
+    <thead><tr><th>Aluno</th><th>Matrícula</th><th>Curso / currículo</th><th>Certificados</th><th>Horas validadas</th><th>Horas lançadas</th><th>Última validação</th></tr></thead>
+    <tbody>
+    {% for r in resumo %}
+      <tr>
+        <td><a href="{{ url_for('coord_painel', visao='certificados', curso=curso, busca=r.matricula) }}"><strong>{{ r.nome }}</strong></a></td>
+        <td>{{ r.matricula }}</td>
+        <td>{{ r.curso }}<br><small>{{ r.curriculo or '' }}</small></td>
+        <td>{{ r.qtd }}</td>
+        <td><strong>{{ r.total|horas }}</strong></td>
+        <td>{{ r.lancadas|horas }}{% if r.pendentes %}<br><small class="pendente">{{ r.pendentes }} a lançar</small>{% endif %}</td>
+        <td><small>{{ r.ultima|data_br }}</small></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+{% else %}
+  <div class="filtro-lancamento">
+    {% for chave, rotulo, n in [('', 'Todos', contagem.pendentes + contagem.lancados), ('pendentes', 'A lançar', contagem.pendentes), ('lancados', 'Lançados', contagem.lancados)] %}
+      <a href="{{ url_for('coord_painel', visao='certificados', curso=curso, busca=busca, lancamento=chave) }}"
+         class="pilula {{ 'ativa' if lancamento == chave }}">{{ rotulo }} <span>{{ n }}</span></a>
+    {% endfor %}
+  </div>
+  {% if not certs %}<p class="cartao vazio">Nenhum certificado encontrado.</p>{% else %}
+  <div class="tabela-wrap">
+  <table class="tabela">
+    <thead><tr><th>Aluno</th><th>Curso / currículo</th><th>Horas validadas</th><th>Reunião do Colegiado de Extensão</th><th>Validado em</th><th>Certificado</th><th>Histórico do aluno</th></tr></thead>
+    <tbody>
+    {% for c in certs %}
+      <tr>
+        <td><strong>{{ c.nome }}</strong><br><small>{{ c.matricula }}</small></td>
+        <td>{{ c.curso }}<br><small>{{ c.curriculo or '' }}</small></td>
+        <td><strong>{{ c.horas_validadas|horas }}</strong>
+          {% if c.horas_validadas != c.horas %}<br><small>de {{ c.horas|horas }} informadas</small>{% endif %}</td>
+        <td>{{ c.reuniao or '—' }}</td>
+        <td><small>{{ c.avaliado_em|data_br }}<br>por {{ c.avaliador or '—' }}</small></td>
+        <td><a href="{{ url_for('arquivo_coord', cid=c.id) }}" target="_blank">Abrir PDF</a></td>
+        <td class="col-lancamento">
+          <form method="post" action="{{ url_for('coord_lancamento', cid=c.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if c.lancado_em %}
+              <span class="selo selo-validado">Lançado</span>
+              <small class="avaliado">em {{ c.lancado_em|data_br }}<br>por {{ c.lancador or '—' }}</small>
+              <button class="link-desfazer" name="acao" value="desfazer"
+                      onclick="return confirm('Desfazer a marcação de lançamento deste certificado?')">Desfazer</button>
+            {% else %}
+              <button class="btn btn-validar" name="acao" value="lancar">Marcar como lançado</button>
+            {% endif %}
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

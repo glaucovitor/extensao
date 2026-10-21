@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block titulo %}Alterar senha{% endblock %}
+{% block classe_main %}conteudo estreito{% endblock %}
+{% block usuario %}
+<div class="usuario">
+  <span>{{ g.usuario.nome }}</span>
+  <a class="btn btn-claro" href="{{ url_for('admin_sair') }}">Sair</a>
+</div>
+{% endblock %}
+{% block conteudo %}
+<section class="cartao">
+  <h1>{{ 'Crie sua nova senha' if obrigatoria else 'Alterar senha' }}</h1>
+  <p class="sub">
+    {% if obrigatoria %}
+      Você está usando a senha inicial cadastrada pela administração. Por segurança, defina uma senha pessoal para continuar.
+    {% else %}
+      Informe a senha atual e escolha a nova senha.
+    {% endif %}
+  </p>
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>{{ 'Senha inicial' if obrigatoria else 'Senha atual' }}
+      <input name="atual" type="password" autocomplete="current-password" required autofocus>
+    </label>
+    <label>Nova senha
+      <input name="senha" type="password" autocomplete="new-password" required>
+    </label>
+    <label>Confirme a nova senha
+      <input name="confirmacao" type="password" autocomplete="new-password" required>
+    </label>
+    <button class="btn btn-primario" type="submit">Salvar nova senha</button>
+  </form>
+  {% if not obrigatoria %}
+    <div class="links"><a href="javascript:history.back()">← Voltar</a></div>
+  {% endif %}
+</section>
+{% endblock %}

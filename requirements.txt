@@ -1,0 +1,3 @@
+Flask>=3.0
+tzdata
+gunicorn>=22.0 ; platform_system != "Windows"

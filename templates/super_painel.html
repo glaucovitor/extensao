@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block titulo %}Administração{% endblock %}
+{% block usuario %}{% include "_servidor_topo.html" %}{% endblock %}
+{% block conteudo %}
+<h1>Administração do sistema</h1>
+<p class="sub">Cadastro de membros do colegiado de extensão, coordenadores(as) de curso e superusuários.</p>
+{% include "_super_abas.html" %}
+
+<div class="duas-colunas">
+  <section class="cartao">
+    <h2>{{ 'Editar usuário' if editar else 'Cadastrar usuário' }}</h2>
+    <form method="post" action="{{ url_for('super_salvar_usuario') }}" class="form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if editar %}<input type="hidden" name="id" value="{{ editar.id }}">{% endif %}
+      <label>Nome
+        <input name="nome" value="{{ editar.nome if editar else '' }}" required>
+      </label>
+      <label>E-mail institucional
+        <input name="email" type="email" placeholder="nome@unb.br" value="{{ editar.email if editar else '' }}" required>
+      </label>
+      <label>{{ 'Nova senha (deixe em branco para manter a atual)' if editar else 'Senha inicial' }}
+        <input name="senha" type="text" autocomplete="off" {{ '' if editar else 'required' }}>
+      </label>
+
+      <fieldset class="atuacao">
+        <legend>Perfis de acesso</legend>
+        <label class="opcao"><input type="checkbox" name="avaliador" value="1"
+          {{ 'checked' if (editar and editar.avaliador) or not editar }}> <span>{{ NOMES_PERFIS.avaliador }} <small>(avalia certificados)</small></span></label>
+        <label class="opcao"><input type="checkbox" name="coordenador" value="1" id="chk-coord"
+          {{ 'checked' if editar and editar.coordenador }}> <span>{{ NOMES_PERFIS.coordenador }} <small>(vê os validados do curso)</small></span></label>
+        <label class="opcao"><input type="checkbox" name="superusuario" value="1"
+          {{ 'checked' if editar and editar.superusuario }}> <span>{{ NOMES_PERFIS.superusuario }} <small>(esta página)</small></span></label>
+      </fieldset>
+
+      <fieldset class="atuacao" id="cursos-coord">
+        <legend>Cursos coordenados</legend>
+        {% for c in cursos %}
+          <label class="opcao"><input type="checkbox" name="cursos" value="{{ c }}" {{ 'checked' if c in cursos_editar }}> {{ c }}</label>
+        {% endfor %}
+      </fieldset>
+
+      <div class="botoes">
+        <button class="btn btn-primario">{{ 'Salvar alterações' if editar else 'Cadastrar' }}</button>
+        {% if editar %}<a class="btn btn-secundario" href="{{ url_for('super_painel') }}">Cancelar</a>{% endif %}
+      </div>
+    </form>
+  </section>
+
+  <section class="cartao">
+    <h2>Alunos cadastrados</h2>
+    <p class="sub">Qualquer aluno pode se cadastrar pelo primeiro acesso, informando nome, matrícula, curso e currículo.</p>
+    <p class="mini-info">{{ total_alunos }} alunos com cadastro concluído</p>
+    <table class="tabela compacta">
+      <thead><tr><th>Curso</th><th>Alunos</th></tr></thead>
+      <tbody>{% for r in alunos_por_curso %}<tr><td>{{ r.curso }}</td><td>{{ r.n }}</td></tr>{% endfor %}</tbody>
+    </table>
+    <a class="btn btn-primario btn-bloco" href="{{ url_for('super_alunos') }}">Gerenciar alunos</a>
+  </section>
+</div>
+
+<section class="cartao bloco">
+  <h2>Usuários cadastrados</h2>
+  <div class="tabela-wrap">
+  <table class="tabela">
+    <thead><tr><th>Nome</th><th>E-mail</th><th>Perfis</th><th>Cursos coordenados</th><th>Situação</th><th></th></tr></thead>
+    <tbody>
+    {% for u in usuarios %}
+      <tr class="{{ '' if u.ativo else 'inativo' }}">
+        <td><strong>{{ u.nome }}</strong></td>
+        <td>{{ u.email }}</td>
+        <td>
+          {% if u.avaliador %}<span class="selo selo-perfil">{{ NOMES_PERFIS.avaliador }}</span>{% endif %}
+          {% if u.coordenador %}<span class="selo selo-perfil">{{ NOMES_PERFIS.coordenador }}</span>{% endif %}
+          {% if u.superusuario %}<span class="selo selo-perfil">{{ NOMES_PERFIS.superusuario }}</span>{% endif %}
+        </td>
+        <td><small>{{ (cursos_por_usuario.get(u.id) or ['—'])|join(', ') if u.coordenador else '—' }}</small></td>
+        <td>{{ 'Ativo' if u.ativo else 'Desativado' }}</td>
+        <td class="acoes-linha">
+          <a class="btn btn-secundario" href="{{ url_for('super_painel', editar=u.id) }}">Editar</a>
+          {% if u.id != g.usuario.id %}
+          <form method="post" action="{{ url_for('super_alternar_ativo', uid=u.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn {{ 'btn-recusar' if u.ativo else 'btn-validar' }}">{{ 'Desativar' if u.ativo else 'Reativar' }}</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+  (function () {
+    const chk = document.getElementById('chk-coord'), box = document.getElementById('cursos-coord');
+    const atualiza = () => { box.hidden = !chk.checked; };
+    chk.addEventListener('change', atualiza); atualiza();
+  })();
+</script>
+{% endblock %}

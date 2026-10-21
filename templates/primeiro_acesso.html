@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block titulo %}Primeiro acesso{% endblock %}
+{% block classe_main %}conteudo estreito{% endblock %}
+{% block conteudo %}
+<section class="cartao">
+  <h1>Primeiro acesso</h1>
+  <p class="sub">Preencha seus dados. Enviaremos ao seu e-mail institucional (<em>matrícula@aluno.unb.br</em>) um link para você criar a senha.</p>
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Nome completo
+      <input name="nome" value="{{ dados.nome or '' }}" autocomplete="name" required autofocus>
+    </label>
+    <label>Matrícula
+      <input name="matricula" inputmode="numeric" pattern="[0-9]{5,12}" title="Somente números"
+             value="{{ dados.matricula or '' }}" required>
+    </label>
+    <label>Curso
+      <select name="curso" required>
+        <option value="">Selecione…</option>
+        {% for c in cursos %}<option value="{{ c }}" {{ 'selected' if c == dados.curso }}>{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Número do currículo
+      <input name="curriculo" placeholder="Ex.: 6360/2" value="{{ dados.curriculo or '' }}" required>
+    </label>
+    <button class="btn btn-primario" type="submit">Cadastrar e receber o link</button>
+  </form>
+  <div class="links"><a href="{{ url_for('login') }}">← Voltar ao login</a></div>
+</section>
+{% endblock %}

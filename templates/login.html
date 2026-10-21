@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block titulo %}Acesso do aluno{% endblock %}
+{% block classe_main %}conteudo estreito{% endblock %}
+{% block conteudo %}
+<section class="cartao">
+  <h1>Acesso do aluno</h1>
+  <p class="sub">Entre com sua matrícula e senha para enviar e acompanhar seus certificados de atividades de extensão.</p>
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Matrícula
+      <input name="matricula" inputmode="numeric" autocomplete="username" required autofocus>
+    </label>
+    <label>Senha
+      <input name="senha" type="password" autocomplete="current-password">
+    </label>
+    <button class="btn btn-primario" type="submit">Entrar</button>
+  </form>
+  <div class="links">
+    <a href="{{ url_for('primeiro_acesso') }}">Primeiro acesso? Cadastre-se</a>
+    <a href="{{ url_for('esqueci_senha') }}">Esqueci minha senha</a>
+  </div>
+</section>
+<p class="nota-rodape"><a href="{{ url_for('admin_login') }}">Acesso do colegiado e da coordenação</a></p>
+{% endblock %}

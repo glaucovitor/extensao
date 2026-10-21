@@ -1,0 +1,10 @@
+<div class="usuario">
+  <nav class="areas">
+    {% for papel, (rotulo, endpoint) in PAPEIS.items() if g.usuario[papel] %}
+      <a href="{{ url_for(endpoint) }}" class="{{ 'atual' if request.path.startswith(url_for(endpoint)) }}">{{ rotulo }}</a>
+    {% endfor %}
+  </nav>
+  <span>{{ g.usuario.nome }}</span>
+  <a class="link-topo" href="{{ url_for('trocar_senha') }}">Alterar senha</a>
+  <a class="btn btn-claro" href="{{ url_for('admin_sair') }}">Sair</a>
+</div>

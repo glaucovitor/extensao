@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block titulo %}Esqueci minha senha{% endblock %}
+{% block classe_main %}conteudo estreito{% endblock %}
+{% block conteudo %}
+<section class="cartao">
+  <h1>Esqueci minha senha</h1>
+  <p class="sub">Informe seu e-mail institucional. Se ele estiver credenciado, enviaremos um link para definir uma nova senha.</p>
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>E-mail institucional
+      <input name="email" type="email" placeholder="nome@unb.br" required autofocus>
+    </label>
+    <button class="btn btn-primario" type="submit">Enviar link</button>
+  </form>
+  <div class="links"><a href="{{ url_for('admin_login') }}">← Voltar</a></div>
+</section>
+{% endblock %}

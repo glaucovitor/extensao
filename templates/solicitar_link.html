@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Primeiro acesso' if primeiro_acesso else 'Esqueci minha senha' }}{% endblock %}
+{% block classe_main %}conteudo estreito{% endblock %}
+{% block conteudo %}
+<section class="cartao">
+  <h1>{{ 'Primeiro acesso' if primeiro_acesso else 'Esqueci minha senha' }}</h1>
+  <p class="sub">
+    {% if primeiro_acesso %}
+      Informe sua matrícula. Enviaremos ao seu e-mail institucional (<em>matrícula@aluno.unb.br</em>) um link para você criar a senha.
+    {% else %}
+      Informe sua matrícula. Enviaremos ao seu e-mail institucional um link para redefinir a senha.
+    {% endif %}
+  </p>
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Matrícula
+      <input name="matricula" inputmode="numeric" value="{{ matricula }}" required autofocus>
+    </label>
+    <button class="btn btn-primario" type="submit">Enviar link</button>
+  </form>
+  <div class="links"><a href="{{ url_for('login') }}">← Voltar ao login</a></div>
+</section>
+{% endblock %}

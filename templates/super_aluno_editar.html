@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block titulo %}Editar aluno{% endblock %}
+{% block usuario %}{% include "_servidor_topo.html" %}{% endblock %}
+{% block conteudo %}
+<h1>Administração do sistema</h1>
+<p class="sub">Edição dos dados de <strong>{{ aluno.nome }}</strong> (matrícula {{ aluno.matricula }}).</p>
+{% include "_super_abas.html" %}
+
+<section class="cartao form-editar-aluno">
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Nome completo
+      <input name="nome" value="{{ dados.nome or '' }}" required>
+    </label>
+    <div class="linha">
+      <label>Matrícula
+        <input name="matricula" inputmode="numeric" pattern="[0-9]{5,12}" title="Somente números"
+               value="{{ dados.matricula or '' }}" required>
+      </label>
+      <label>Número do currículo
+        <input name="curriculo" value="{{ dados.curriculo or '' }}" required>
+      </label>
+    </div>
+    <label>Curso
+      <select name="curso" required>
+        {% for c in cursos %}<option value="{{ c }}" {{ 'selected' if c == dados.curso }}>{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Nova senha <small class="dica">(deixe em branco para manter a atual)</small>
+      <input name="senha" type="text" autocomplete="off">
+    </label>
+    {% if not aluno.senha_hash %}
+      <p class="dica">Este aluno ainda não criou a senha. Se você definir uma aqui, ele já poderá entrar com ela.</p>
+    {% endif %}
+    <label class="opcao"><input type="checkbox" name="ativo" value="1" {{ 'checked' if ativo }}>
+      <span>Acesso liberado <small>(desmarque para bloquear o login deste aluno; os certificados são mantidos)</small></span></label>
+
+    <p class="dica">Ao trocar a matrícula, os certificados do aluno passam para a nova matrícula, e os próximos
+      e-mails vão para o novo endereço institucional.</p>
+
+    <div class="botoes">
+      <button class="btn btn-primario">Salvar alterações</button>
+      <a class="btn btn-secundario" href="{{ url_for('super_alunos') }}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

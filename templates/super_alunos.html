@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block titulo %}Alunos{% endblock %}
+{% block usuario %}{% include "_servidor_topo.html" %}{% endblock %}
+{% block conteudo %}
+<h1>Administração do sistema</h1>
+<p class="sub">Alunos cadastrados no sistema. Clique em "Editar" para corrigir dados, redefinir a senha ou bloquear o acesso.</p>
+{% include "_super_abas.html" %}
+
+<form method="get" class="filtros barra-filtros">
+  <label>Buscar
+    <input name="busca" value="{{ busca }}" placeholder="Nome ou matrícula">
+  </label>
+  <label>Curso
+    <select name="curso">
+      <option value="">Todos os cursos</option>
+      {% for c in cursos %}<option value="{{ c }}" {{ 'selected' if c == curso }}>{{ c }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Situação
+    <select name="situacao">
+      <option value="">Todas</option>
+      <option value="concluido" {{ 'selected' if situacao == 'concluido' }}>Cadastro concluído</option>
+      <option value="pendente" {{ 'selected' if situacao == 'pendente' }}>Aguardando criar senha</option>
+      <option value="bloqueado" {{ 'selected' if situacao == 'bloqueado' }}>Acesso bloqueado</option>
+    </select>
+  </label>
+  <button class="btn btn-primario">Filtrar</button>
+  {% if busca or curso or situacao %}<a class="btn btn-secundario" href="{{ url_for('super_alunos') }}">Limpar</a>{% endif %}
+</form>
+
+<p class="mini-info">{{ alunos|length }} aluno{{ 's' if alunos|length != 1 }} encontrado{{ 's' if alunos|length != 1 }}</p>
+
+{% if not alunos %}
+  <p class="cartao vazio">Nenhum aluno encontrado com esses filtros.</p>
+{% else %}
+<div class="tabela-wrap">
+<table class="tabela">
+  <thead><tr><th>Nome</th><th>Matrícula</th><th>Curso</th><th>Currículo</th><th>Certificados</th><th>Situação</th><th></th></tr></thead>
+  <tbody>
+  {% for a in alunos %}
+    <tr class="{{ '' if a.ativo else 'inativo' }}">
+      <td><strong>{{ a.nome }}</strong></td>
+      <td>{{ a.matricula }}</td>
+      <td>{{ a.curso }}</td>
+      <td>{{ a.curriculo or '—' }}</td>
+      <td>{{ a.certs }}{% if a.certs %}<br><small>{{ a.validados or 0 }} validado{{ 's' if a.validados != 1 }} · {{ a.aguardando or 0 }} aguardando</small>{% endif %}</td>
+      <td>
+        {% if not a.ativo %}<span class="selo selo-recusado">Bloqueado</span>
+        {% elif a.senha_hash %}<span class="selo selo-validado">Cadastro concluído</span>
+        {% else %}<span class="selo selo-aguardando">Aguardando criar senha</span>{% endif %}
+      </td>
+      <td><a class="btn btn-secundario btn-mini" href="{{ url_for('super_editar_aluno', matricula=a.matricula) }}">Editar</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

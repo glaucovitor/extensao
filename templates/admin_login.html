@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titulo %}Acesso de servidores{% endblock %}
+{% block classe_main %}conteudo estreito{% endblock %}
+{% block conteudo %}
+<section class="cartao">
+  <h1>Acesso de servidores</h1>
+  <p class="sub">Membros do colegiado de extensão, coordenadores(as) de curso e superusuários. Entre com seu e-mail institucional.</p>
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>E-mail institucional
+      <input name="email" type="email" placeholder="nome@unb.br" autocomplete="username" required autofocus>
+    </label>
+    <label>Senha
+      <input name="senha" type="password" autocomplete="current-password" required>
+    </label>
+    <button class="btn btn-primario" type="submit">Entrar</button>
+  </form>
+  <div class="links">
+    <a href="{{ url_for('admin_esqueci_senha') }}">Esqueci minha senha</a>
+  </div>
+</section>
+<p class="nota-rodape"><a href="{{ url_for('login') }}">Acesso de alunos</a></p>
+{% endblock %}
