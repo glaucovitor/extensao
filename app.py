@@ -73,17 +73,9 @@ app.config.update(
     SECRET_KEY=chave_secreta(),
     DATABASE=os.environ.get("DATABASE", str(BASE_DIR / "instance" / "certificados.db")),
     UPLOAD_FOLDER=os.environ.get("UPLOAD_FOLDER", str(BASE_DIR / "uploads")),
-    # Cloudflare R2: com as quatro variáveis definidas, os PDFs são guardados no
-    # bucket do R2 em vez da pasta local (UPLOAD_FOLDER).
-    R2_ACCOUNT_ID=os.environ.get("R2_ACCOUNT_ID"),
-    R2_ACCESS_KEY_ID=os.environ.get("R2_ACCESS_KEY_ID"),
-    R2_SECRET_ACCESS_KEY=os.environ.get("R2_SECRET_ACCESS_KEY"),
-    R2_BUCKET=os.environ.get("R2_BUCKET"),
-    R2_ENDPOINT=os.environ.get("R2_ENDPOINT"),  # opcional; padrão https://<conta>.r2.cloudflarestorage.com
     # 25 MB por arquivo; o limite da requisição tem uma folga para os demais campos
     MAX_PDF_BYTES=25 * 1024 * 1024,
     MAX_CONTENT_LENGTH=26 * 1024 * 1024,
-    # E-mail institucional do aluno, montado a partir da matrícula
     # Domínio exigido para o e-mail institucional (login) dos servidores
     DOMINIO_PROFESSOR=os.environ.get("DOMINIO_PROFESSOR", "unb.br"),
     # Contas de teste (senha 123456): aluno 2025999, teste@unb.br (colegiado),
@@ -450,7 +442,7 @@ def arquivo_grande(_e):
 
 
 # ---------------------------------------------------------------------------
-# Armazenamento dos PDFs: pasta local ou Cloudflare R2
+# Armazenamento dos PDFs: pasta local do servidor (UPLOAD_FOLDER)
 # ---------------------------------------------------------------------------
 class ArmazenamentoLocal:
     descricao = "pasta local"
@@ -483,76 +475,15 @@ class ArmazenamentoLocal:
                                    mimetype="application/pdf")
 
 
-class ArmazenamentoR2:
-    """Cloudflare R2 (API compatível com S3). O bucket fica privado: os PDFs
-    passam sempre pelo sistema, que confere quem pode ver cada arquivo."""
-    descricao = "Cloudflare R2"
-
-    def __init__(self, cfg):
-        import boto3
-        from botocore.config import Config
-        self.bucket = cfg["R2_BUCKET"]
-        endpoint = cfg["R2_ENDPOINT"] or f"https://{cfg['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
-        self.s3 = boto3.client(
-            "s3", endpoint_url=endpoint, region_name="auto",
-            aws_access_key_id=cfg["R2_ACCESS_KEY_ID"],
-            aws_secret_access_key=cfg["R2_SECRET_ACCESS_KEY"],
-            config=Config(signature_version="s3v4", retries={"max_attempts": 3}))
-
-    def salvar(self, nome, arquivo):
-        arquivo.seek(0)
-        self.s3.upload_fileobj(arquivo, self.bucket, nome,
-                               ExtraArgs={"ContentType": "application/pdf"})
-
-    def existe(self, nome):
-        from botocore.exceptions import ClientError
-        try:
-            self.s3.head_object(Bucket=self.bucket, Key=nome)
-            return True
-        except ClientError:
-            return False
-
-    def renomear(self, de, para):
-        if self.existe(de):
-            self.s3.copy_object(Bucket=self.bucket, Key=para,
-                                CopySource={"Bucket": self.bucket, "Key": de},
-                                ContentType="application/pdf", MetadataDirective="REPLACE")
-            self.s3.delete_object(Bucket=self.bucket, Key=de)
-
-    def apagar(self, nome):
-        self.s3.delete_object(Bucket=self.bucket, Key=nome)
-
-    def resposta(self, nome, nome_download):
-        from botocore.exceptions import ClientError
-        from flask import Response
-        try:
-            obj = self.s3.get_object(Bucket=self.bucket, Key=nome)
-        except ClientError:
-            abort(404)
-        return Response(
-            obj["Body"].iter_chunks(64 * 1024), mimetype="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{nome_download}"',
-                     "Content-Length": str(obj["ContentLength"]),
-                     "Cache-Control": "private, no-store"})
-
-
-def r2_configurado(cfg=None):
-    cfg = cfg or app.config
-    return all(cfg.get(k) for k in ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")) and \
-        bool(cfg.get("R2_ACCOUNT_ID") or cfg.get("R2_ENDPOINT"))
-
-
 _armazenamento = {}
 
 
 def armazenamento():
-    """Devolve o armazenamento em uso (R2 se configurado; senão, a pasta local)."""
-    chave = ("r2", app.config.get("R2_BUCKET"), app.config.get("R2_ENDPOINT"),
-             app.config.get("R2_ACCOUNT_ID")) if r2_configurado() else ("local", app.config["UPLOAD_FOLDER"])
-    if chave not in _armazenamento:
-        _armazenamento[chave] = (ArmazenamentoR2(app.config) if chave[0] == "r2"
-                                 else ArmazenamentoLocal(app.config["UPLOAD_FOLDER"]))
-    return _armazenamento[chave]
+    """Devolve o armazenamento dos PDFs (pasta UPLOAD_FOLDER do servidor)."""
+    pasta = app.config["UPLOAD_FOLDER"]
+    if pasta not in _armazenamento:
+        _armazenamento[pasta] = ArmazenamentoLocal(pasta)
+    return _armazenamento[pasta]
 
 
 # ---------------------------------------------------------------------------
@@ -1300,29 +1231,6 @@ def fmt_horas(valor):
 # ---------------------------------------------------------------------------
 # Comandos de linha de comando
 # ---------------------------------------------------------------------------
-@app.cli.command("enviar-pdfs-para-r2")
-def cmd_enviar_r2():
-    """Copia para o Cloudflare R2 os PDFs que estão na pasta local (UPLOAD_FOLDER).
-    Use uma vez, ao passar a usar o R2. Os arquivos locais não são apagados."""
-    if not r2_configurado():
-        raise click.ClickException("Defina R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY e R2_BUCKET.")
-    init_db()
-    local = ArmazenamentoLocal(app.config["UPLOAD_FOLDER"])
-    r2 = armazenamento()
-    enviados = ja_existiam = faltando = 0
-    for (nome,) in get_db().execute("SELECT arquivo FROM certificados ORDER BY id"):
-        if r2.existe(nome):
-            ja_existiam += 1
-        elif local.existe(nome):
-            with open(local.pasta / nome, "rb") as f:
-                r2.salvar(nome, f)
-            enviados += 1
-        else:
-            faltando += 1
-            click.echo(f"  não encontrado na pasta local: {nome}")
-    click.echo(f"{enviados} PDFs enviados ao R2, {ja_existiam} já estavam lá, {faltando} não encontrados.")
-
-
 @app.cli.command("testar-armazenamento")
 def cmd_testar_armazenamento():
     """Grava, lê e apaga um arquivo de teste para conferir a configuração."""

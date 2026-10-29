@@ -94,22 +94,10 @@ Todas as variáveis abaixo podem ser colocadas no `.env`.
 |---|---|---|
 | `SECRET_KEY` | criada e guardada em `instance/secret_key` | Chave das sessões |
 | `DATABASE` | `instance/certificados.db` | Banco SQLite |
-| `UPLOAD_FOLDER` | `uploads/` | Onde os PDFs são guardados quando o R2 não está configurado |
-| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | — | Guardam os PDFs no Cloudflare R2 (ver seção abaixo) |
+| `UPLOAD_FOLDER` | `uploads/` | Pasta do servidor onde os PDFs são guardados |
 | `DOMINIO_PROFESSOR` | `unb.br` | Domínio exigido para professores |
 | `CONTAS_TESTE` | `1` | Ativa as contas de teste (use `0` em produção) |
 | `SESSION_COOKIE_SECURE` | `0` | Use `1` atrás de HTTPS |
-
-## Guardar os PDFs no Cloudflare R2
-
-Com as quatro variáveis `R2_*` definidas, os PDFs vão para um bucket privado do Cloudflare R2, e o servidor guarda só o banco de dados. Os PDFs continuam passando pelo sistema, que confere quem pode ver cada um. Sem essas variáveis, o sistema usa a pasta `uploads/`.
-
-1. No painel da Cloudflare, abra **R2 Object Storage** e ative o serviço (a Cloudflare pode pedir um cartão para verificação; o plano gratuito inclui 10 GB).
-2. Crie um bucket, por exemplo `certificados-fcte`. **Não** ative o acesso público.
-3. Em **Manage R2 API Tokens**, crie um token com permissão **Object Read & Write**, restrito a esse bucket. Copie o *Access Key ID* e o *Secret Access Key* (o segredo aparece uma única vez).
-4. Copie o **Account ID**, que aparece no painel do R2.
-5. Preencha `R2_ACCESS_KEY_ID` e `R2_SECRET_ACCESS_KEY` no arquivo `.env` (ver "Arquivo de configuração .env") e teste: `python -m flask --app app testar-armazenamento`.
-6. Se já houver PDFs na pasta `uploads/`, copie-os para o R2 uma vez: `python -m flask --app app enviar-pdfs-para-r2`.
 
 ## Produção
 
@@ -118,7 +106,7 @@ export SESSION_COOKIE_SECURE=1   # demais configurações no .env
 gunicorn -w 3 -b 127.0.0.1:8000 app:app
 ```
 
-Coloque um Nginx (ou similar) com HTTPS na frente e configure `client_max_body_size 26M;`. Faça backup periódico de `instance/certificados.db` e, se não usar o R2, da pasta `uploads/`.
+Coloque um Nginx (ou similar) com HTTPS na frente e configure `client_max_body_size 26M;`. Faça backup periódico de `instance/certificados.db` e da pasta `uploads/`.
 
 ## Regras implementadas
 
