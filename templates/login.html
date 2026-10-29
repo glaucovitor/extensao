@@ -2,23 +2,31 @@
 {% block titulo %}Acesso do aluno{% endblock %}
 {% block classe_main %}conteudo estreito{% endblock %}
 {% block conteudo %}
+<a class="destaque-primeiro-acesso" href="{{ url_for('primeiro_acesso') }}">
+  <span class="dpa-icone" aria-hidden="true">★</span>
+  <span class="dpa-texto">
+    <strong>Primeira vez aqui?</strong>
+    <span>Faça seu cadastro antes de entrar. Leva menos de um minuto.</span>
+  </span>
+  <span class="dpa-botao">Fazer meu primeiro acesso →</span>
+</a>
+
 <section class="cartao">
   <h1>Acesso do aluno</h1>
-  <p class="sub">Entre com sua matrícula e senha para enviar e acompanhar seus certificados de atividades de extensão.</p>
+  <p class="sub">Entre com sua matrícula e seu CPF para enviar e acompanhar seus certificados de atividades de extensão.</p>
   <form method="post" class="form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>Matrícula
-      <input name="matricula" inputmode="numeric" autocomplete="username" required autofocus>
+    <label>Matrícula <small class="dica">(somente números)</small>
+      <input name="matricula" inputmode="numeric" pattern="[0-9]{5,12}" 
+             title="Somente números" data-somente-numeros="12" autocomplete="username" required autofocus>
     </label>
-    <label>Senha
-      <input name="senha" type="password" autocomplete="current-password">
+    <label>CPF <small class="dica">(somente os 11 números)</small>
+      <input name="cpf" type="password" inputmode="numeric" pattern="[0-9]{11}" 
+             title="Somente os 11 números do CPF" data-somente-numeros="11" autocomplete="off" required>
     </label>
     <button class="btn btn-primario" type="submit">Entrar</button>
   </form>
-  <div class="links">
-    <a href="{{ url_for('primeiro_acesso') }}">Primeiro acesso? Cadastre-se</a>
-    <a href="{{ url_for('esqueci_senha') }}">Esqueci minha senha</a>
-  </div>
+  <a class="btn btn-destaque" href="{{ url_for('primeiro_acesso') }}">Ainda não tenho cadastro: fazer primeiro acesso</a>
 </section>
 <p class="nota-rodape"><a href="{{ url_for('admin_login') }}">Acesso do colegiado e da coordenação</a></p>
 {% endblock %}

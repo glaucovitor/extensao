@@ -3,7 +3,7 @@
 {% block usuario %}{% include "_servidor_topo.html" %}{% endblock %}
 {% block conteudo %}
 <h1>Administração do sistema</h1>
-<p class="sub">Alunos cadastrados no sistema. Cadastre novos alunos ou clique em "Editar" para corrigir dados, redefinir a senha ou bloquear o acesso.</p>
+<p class="sub">Alunos cadastrados no sistema. Cadastre novos alunos ou clique em "Editar" para corrigir os dados (inclusive o CPF) ou bloquear o acesso.</p>
 {% include "_super_abas.html" %}
 
 <form method="get" class="filtros barra-filtros">
@@ -20,7 +20,7 @@
     <select name="situacao">
       <option value="">Todas</option>
       <option value="concluido" {{ 'selected' if situacao == 'concluido' }}>Cadastro concluído</option>
-      <option value="pendente" {{ 'selected' if situacao == 'pendente' }}>Aguardando criar senha</option>
+      <option value="pendente" {{ 'selected' if situacao == 'pendente' }}>Sem CPF (aguardando primeiro acesso)</option>
       <option value="bloqueado" {{ 'selected' if situacao == 'bloqueado' }}>Acesso bloqueado</option>
     </select>
   </label>
@@ -49,8 +49,8 @@
       <td>{{ a.certs }}{% if a.certs %}<br><small>{{ a.validados or 0 }} validado{{ 's' if a.validados != 1 }} · {{ a.aguardando or 0 }} aguardando</small>{% endif %}</td>
       <td>
         {% if not a.ativo %}<span class="selo selo-recusado">Bloqueado</span>
-        {% elif a.senha_hash %}<span class="selo selo-validado">Cadastro concluído</span>
-        {% else %}<span class="selo selo-aguardando">Aguardando criar senha</span>{% endif %}
+        {% elif a.cpf_hash %}<span class="selo selo-validado">Cadastro concluído</span>
+        {% else %}<span class="selo selo-aguardando">Sem CPF</span>{% endif %}
       </td>
       <td><a class="btn btn-secundario btn-mini" href="{{ url_for('super_editar_aluno', matricula=a.matricula) }}">Editar</a></td>
     </tr>

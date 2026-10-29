@@ -1,0 +1,14 @@
+# Senhas e chaves — nunca enviar ao GitHub
+.env
+instance/secret_key
+
+# Banco de dados e PDFs enviados (dados pessoais dos alunos)
+instance/*.db
+uploads/*
+!uploads/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/

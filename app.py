@@ -10,49 +10,82 @@ Execução rápida (desenvolvimento):
 import os
 import re
 import secrets
-import smtplib
 import sqlite3
+import unicodedata
 import uuid
 from datetime import date, datetime
-from email.message import EmailMessage
 from functools import wraps
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import click
+import io
 from flask import (Flask, abort, flash, g, redirect, render_template, request,
                    send_from_directory, session, url_for)
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = Path(__file__).resolve().parent
 TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def carrega_env(caminho=BASE_DIR / ".env"):
+    """Lê o arquivo .env (CHAVE=valor, uma por linha) e coloca os valores nas
+    variáveis de ambiente. Variáveis já definidas no sistema têm prioridade.
+    Linhas vazias e iniciadas por # são ignoradas."""
+    if not caminho.exists():
+        return
+    for linha in caminho.read_text(encoding="utf-8-sig").splitlines():
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        chave, valor = linha.split("=", 1)
+        chave, valor = chave.strip(), valor.strip()
+        if len(valor) >= 2 and valor[0] == valor[-1] and valor[0] in "\"'":
+            valor = valor[1:-1]
+        if chave and valor and chave not in os.environ:
+            os.environ[chave] = valor
+
+
+def chave_secreta():
+    """SECRET_KEY do .env/ambiente; se não houver, cria uma e guarda em
+    instance/secret_key, para que as sessões não caiam a cada reinício."""
+    if os.environ.get("SECRET_KEY"):
+        return os.environ["SECRET_KEY"]
+    arquivo = BASE_DIR / "instance" / "secret_key"
+    try:
+        if arquivo.exists():
+            return arquivo.read_text().strip()
+        arquivo.parent.mkdir(parents=True, exist_ok=True)
+        chave = secrets.token_hex(32)
+        arquivo.write_text(chave)
+        return chave
+    except OSError:
+        return secrets.token_hex(32)
+
+
+carrega_env()
 
 # ---------------------------------------------------------------------------
 # Configuração (tudo pode ser sobrescrito por variáveis de ambiente)
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
 app.config.update(
-    SECRET_KEY=os.environ.get("SECRET_KEY") or secrets.token_hex(32),
+    SECRET_KEY=chave_secreta(),
     DATABASE=os.environ.get("DATABASE", str(BASE_DIR / "instance" / "certificados.db")),
     UPLOAD_FOLDER=os.environ.get("UPLOAD_FOLDER", str(BASE_DIR / "uploads")),
+    # Cloudflare R2: com as quatro variáveis definidas, os PDFs são guardados no
+    # bucket do R2 em vez da pasta local (UPLOAD_FOLDER).
+    R2_ACCOUNT_ID=os.environ.get("R2_ACCOUNT_ID"),
+    R2_ACCESS_KEY_ID=os.environ.get("R2_ACCESS_KEY_ID"),
+    R2_SECRET_ACCESS_KEY=os.environ.get("R2_SECRET_ACCESS_KEY"),
+    R2_BUCKET=os.environ.get("R2_BUCKET"),
+    R2_ENDPOINT=os.environ.get("R2_ENDPOINT"),  # opcional; padrão https://<conta>.r2.cloudflarestorage.com
     # 25 MB por arquivo; o limite da requisição tem uma folga para os demais campos
     MAX_PDF_BYTES=25 * 1024 * 1024,
     MAX_CONTENT_LENGTH=26 * 1024 * 1024,
     # E-mail institucional do aluno, montado a partir da matrícula
-    EMAIL_ALUNO_PADRAO=os.environ.get("EMAIL_ALUNO_PADRAO", "{matricula}@aluno.unb.br"),
-    # Domínio exigido para professores
+    # Domínio exigido para o e-mail institucional (login) dos servidores
     DOMINIO_PROFESSOR=os.environ.get("DOMINIO_PROFESSOR", "unb.br"),
-    # Validade do link de criação/redefinição de senha (segundos)
-    TOKEN_VALIDADE=int(os.environ.get("TOKEN_VALIDADE", 3600)),
-    # SMTP — se MAIL_SERVER não estiver definido e MODO_DEV=1, o link aparece na tela
-    MAIL_SERVER=os.environ.get("MAIL_SERVER"),
-    MAIL_PORT=int(os.environ.get("MAIL_PORT", 587)),
-    MAIL_USERNAME=os.environ.get("MAIL_USERNAME"),
-    MAIL_PASSWORD=os.environ.get("MAIL_PASSWORD"),
-    MAIL_FROM=os.environ.get("MAIL_FROM", "nao-responda@unb.br"),
-    MAIL_USE_TLS=os.environ.get("MAIL_USE_TLS", "1") == "1",
-    MODO_DEV=os.environ.get("MODO_DEV", "0") == "1",
     # Contas de teste (senha 123456): aluno 2025999, teste@unb.br (colegiado),
     # coordenador@unb.br (coordenação) e admin@unb.br (superusuário).
     # Em produção, defina CONTAS_TESTE=0 para desativá-las.
@@ -74,7 +107,8 @@ CREATE TABLE IF NOT EXISTS alunos (
     nome        TEXT NOT NULL,
     curso       TEXT NOT NULL,
     curriculo   TEXT,
-    senha_hash  TEXT,
+    senha_hash  TEXT,           -- não é mais usado (o login do aluno passou a ser matrícula + CPF)
+    cpf_hash    TEXT,           -- CPF guardado como hash, como uma senha
     ativo       INTEGER NOT NULL DEFAULT 1
 );
 -- Servidores: professores do colegiado (avaliador), coordenadores de curso e superusuários.
@@ -103,7 +137,7 @@ CREATE TABLE IF NOT EXISTS certificados (
     horas         REAL NOT NULL,
     data_inicio   TEXT NOT NULL,
     data_fim      TEXT NOT NULL,
-    atuacao       TEXT NOT NULL CHECK (atuacao = 'participante'),
+    atuacao       TEXT NOT NULL CHECK (atuacao = 'participante'),  -- "participante" = membro da equipe organizadora
     status        TEXT NOT NULL DEFAULT 'aguardando'
                   CHECK (status IN ('aguardando','validado','recusado')),
     motivo        TEXT,
@@ -111,6 +145,7 @@ CREATE TABLE IF NOT EXISTS certificados (
     reuniao       TEXT,
     lancado_em    TEXT,
     lancado_por   INTEGER REFERENCES professores(id),
+    numero        INTEGER,      -- nº fixo do certificado do aluno (usado no nome do arquivo)
     enviado_em    TEXT NOT NULL,
     avaliado_em   TEXT,
     avaliado_por  INTEGER REFERENCES professores(id)
@@ -144,7 +179,6 @@ def close_db(_exc):
 
 def init_db():
     Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
-    Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
     db = get_db()
     db.executescript(SCHEMA)
     # Migração de bancos criados na versão anterior
@@ -154,6 +188,8 @@ def init_db():
         db.execute("UPDATE certificados SET horas_validadas = horas WHERE status = 'validado'")
     if "reuniao" not in colunas:
         db.execute("ALTER TABLE certificados ADD COLUMN reuniao TEXT")
+    if "numero" not in colunas:
+        db.execute("ALTER TABLE certificados ADD COLUMN numero INTEGER")
     if "lancado_em" not in colunas:
         db.execute("ALTER TABLE certificados ADD COLUMN lancado_em TEXT")
         db.execute("ALTER TABLE certificados ADD COLUMN lancado_por INTEGER REFERENCES professores(id)")
@@ -161,15 +197,23 @@ def init_db():
     for col, padrao in (("avaliador", 1), ("coordenador", 0), ("superusuario", 0), ("trocar_senha", 0)):
         if col not in colunas:
             db.execute(f"ALTER TABLE professores ADD COLUMN {col} INTEGER NOT NULL DEFAULT {padrao}")
+    if "cpf_hash" not in {r["name"] for r in db.execute("PRAGMA table_info(alunos)")}:
+        db.execute("ALTER TABLE alunos ADD COLUMN cpf_hash TEXT")
     if db.execute("SELECT 1 FROM meta WHERE chave = 'sem_planilha'").fetchone() is None:
         # Versões anteriores desativavam quem saía da planilha; agora todos têm acesso.
         db.execute("UPDATE alunos SET ativo = 1")
         db.execute("INSERT INTO meta (chave, valor) VALUES ('sem_planilha', '1')")
     garante_contas_teste(db)
+    if db.execute("SELECT 1 FROM meta WHERE chave = 'nomes_arquivos'").fetchone() is None:
+        # Arquivos enviados em versões anteriores passam a seguir o padrão matrícula_curso_n.pdf
+        for r in db.execute("SELECT DISTINCT matricula FROM certificados").fetchall():
+            renomeia_arquivos_do_aluno(db, r["matricula"])
+        db.execute("INSERT INTO meta (chave, valor) VALUES ('nomes_arquivos', '1')")
     db.commit()
 
 
 ALUNO_TESTE = ("2025999", "João de Teste", "Engenharia de Software", "6360/2")
+CPF_TESTE = "52998224725"  # CPF fictício, com dígitos verificadores válidos
 # (e-mail, nome, avaliador, coordenador, superusuário, cursos coordenados)
 SERVIDORES_TESTE = [
     ("teste@unb.br", "Professor Teste", 1, 0, 0, []),
@@ -184,6 +228,12 @@ def garante_contas_teste(db):
     ou renomeadas normalmente; só voltam a ser tocadas quando CONTAS_TESTE muda
     (CONTAS_TESTE=0 desativa, CONTAS_TESTE=1 reativa)."""
     desejado = "1" if app.config["CONTAS_TESTE"] else "0"
+    if app.config["CONTAS_TESTE"] and db.execute(
+            "SELECT 1 FROM meta WHERE chave = 'cpf_teste'").fetchone() is None:
+        # Bancos anteriores: o aluno de teste passa a entrar com o CPF de teste.
+        db.execute("UPDATE alunos SET cpf_hash = ? WHERE matricula = ? AND cpf_hash IS NULL",
+                   (hash_cpf(CPF_TESTE), ALUNO_TESTE[0]))
+        db.execute("INSERT INTO meta (chave, valor) VALUES ('cpf_teste', '1')")
     salvo = db.execute("SELECT valor FROM meta WHERE chave = 'contas_teste'").fetchone()
     if salvo is not None and salvo["valor"] == desejado:
         return
@@ -191,9 +241,9 @@ def garante_contas_teste(db):
     mat, nome, curso, curr = ALUNO_TESTE
     if salvo is None:  # primeira execução: cria o que ainda não existir
         if db.execute("SELECT 1 FROM alunos WHERE matricula = ?", (mat,)).fetchone() is None:
-            db.execute("""INSERT INTO alunos (matricula, nome, curso, curriculo, senha_hash, ativo)
+            db.execute("""INSERT INTO alunos (matricula, nome, curso, curriculo, cpf_hash, ativo)
                           VALUES (?, ?, ?, ?, ?, ?)""",
-                       (mat, nome, curso, curr, generate_password_hash(SENHA_TESTE), ativo))
+                       (mat, nome, curso, curr, hash_cpf(CPF_TESTE), ativo))
         for email, pnome, aval, coord, sup, cursos in SERVIDORES_TESTE:
             if db.execute("SELECT 1 FROM professores WHERE email = ?", (email,)).fetchone() is None:
                 cur = db.execute(
@@ -217,22 +267,58 @@ def agora():
 # Dados do aluno (informados por ele no primeiro acesso)
 # ---------------------------------------------------------------------------
 def normaliza_matricula(valor):
+    """Usada apenas em buscas e comandos de terminal; nos formulários do aluno a
+    matrícula precisa vir só com números (ver valida_dados_aluno)."""
     if valor is None:
         return ""
     return re.sub(r"\D", "", str(valor).strip())
 
 
-def valida_dados_aluno(f):
-    """Valida o formulário de primeiro acesso. Devolve (dados, erros)."""
+def so_digitos(valor):
+    """Devolve o valor sem espaços nas pontas, ou None se tiver algo além de números."""
+    valor = (valor or "").strip()
+    return valor if valor.isascii() and valor.isdigit() else None
+
+
+def cpf_valido(cpf):
+    """Confere os dois dígitos verificadores do CPF (11 números)."""
+    if not cpf or len(cpf) != 11 or not cpf.isdigit() or cpf == cpf[0] * 11:
+        return False
+    for n in (9, 10):
+        soma = sum(int(cpf[i]) * (n + 1 - i) for i in range(n))
+        dv = (soma * 10) % 11 % 10
+        if dv != int(cpf[n]):
+            return False
+    return True
+
+
+def hash_cpf(cpf):
+    return generate_password_hash(cpf)
+
+
+def valida_dados_aluno(f, exigir_cpf=True):
+    """Valida os dados do aluno (primeiro acesso e área do superusuário).
+    Matrícula e CPF são aceitos apenas com números. Devolve (dados, erros)."""
+    matricula = so_digitos(f.get("matricula"))
+    cpf_bruto = (f.get("cpf") or "").strip()
+    cpf = so_digitos(cpf_bruto)
     dados = {
-        "matricula": normaliza_matricula(f.get("matricula")),
+        "matricula": matricula or (f.get("matricula") or "").strip()[:20],
         "nome": " ".join(f.get("nome", "").split())[:150],
         "curso": f.get("curso", ""),
         "curriculo": f.get("curriculo", "").strip()[:30],
+        "cpf": cpf or "",
     }
     erros = []
-    if not (5 <= len(dados["matricula"]) <= 12):
-        erros.append("Informe uma matrícula válida (somente números).")
+    if matricula is None:
+        erros.append("A matrícula deve conter somente números (sem pontos, barras ou letras).")
+    elif not (5 <= len(matricula) <= 12):
+        erros.append("Informe uma matrícula válida.")
+    if cpf_bruto or exigir_cpf:
+        if cpf is None:
+            erros.append("O CPF deve conter somente os 11 números, sem pontos ou traço.")
+        elif not cpf_valido(cpf):
+            erros.append("CPF inválido. Confira os 11 números informados.")
     if len(dados["nome"]) < 3:
         erros.append("Informe seu nome completo.")
     if dados["curso"] not in CURSOS_FCTE:
@@ -243,7 +329,7 @@ def valida_dados_aluno(f):
 
 
 # ---------------------------------------------------------------------------
-# Segurança: CSRF, sessões e tokens de senha
+# Segurança: CSRF e sessões
 # ---------------------------------------------------------------------------
 def csrf_token():
     if "_csrf" not in session:
@@ -264,75 +350,10 @@ def antes():
             abort(400, "Sessão expirada. Recarregue a página e tente novamente.")
 
 
-def serializer():
-    return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="senha")
-
-
-def gera_token(tipo, ident, senha_hash):
-    # O trecho do hash atual torna o link de uso único: após definir a senha,
-    # o hash muda e o link antigo deixa de valer.
-    return serializer().dumps({"t": tipo, "id": ident, "h": (senha_hash or "")[-16:]})
-
-
-def le_token(token):
-    try:
-        return serializer().loads(token, max_age=app.config["TOKEN_VALIDADE"])
-    except (SignatureExpired, BadSignature):
-        return None
-
-
 def senha_valida(senha):
     if not senha:
         return "Informe uma senha."
     return None
-
-
-def email_do_aluno(matricula):
-    return app.config["EMAIL_ALUNO_PADRAO"].format(matricula=matricula)
-
-
-def mascara_email(email):
-    usuario, _, dominio = email.partition("@")
-    visivel = usuario[:3] if len(usuario) > 4 else usuario[:1]
-    return f"{visivel}{'*' * max(len(usuario) - len(visivel), 3)}@{dominio}"
-
-
-def enviar_email(destino, assunto, corpo):
-    """Envia via SMTP. Sem SMTP configurado, só funciona em MODO_DEV
-    (o link é mostrado na tela e no terminal)."""
-    if not app.config["MAIL_SERVER"]:
-        app.logger.warning("SMTP não configurado. E-mail para %s:\n%s", destino, corpo)
-        return app.config["MODO_DEV"]
-    msg = EmailMessage()
-    msg["Subject"] = assunto
-    msg["From"] = app.config["MAIL_FROM"]
-    msg["To"] = destino
-    msg.set_content(corpo)
-    try:
-        with smtplib.SMTP(app.config["MAIL_SERVER"], app.config["MAIL_PORT"], timeout=15) as s:
-            if app.config["MAIL_USE_TLS"]:
-                s.starttls()
-            if app.config["MAIL_USERNAME"]:
-                s.login(app.config["MAIL_USERNAME"], app.config["MAIL_PASSWORD"])
-            s.send_message(msg)
-        return True
-    except Exception:
-        app.logger.exception("Falha ao enviar e-mail para %s", destino)
-        return False
-
-
-def envia_link_senha(tipo, ident, email, senha_hash, primeiro_acesso):
-    link = url_for("definir_senha", token=gera_token(tipo, ident, senha_hash), _external=True)
-    acao = "criar sua senha" if primeiro_acesso else "redefinir sua senha"
-    corpo = (
-        f"Olá,\n\nPara {acao} no sistema de Envio de Certificados de Extensão da FCTE/UnB, "
-        f"acesse o link abaixo (válido por {app.config['TOKEN_VALIDADE'] // 60} minutos):\n\n"
-        f"{link}\n\nSe você não fez esta solicitação, ignore esta mensagem."
-    )
-    ok = enviar_email(email, "Certificados de Extensão — senha de acesso", corpo)
-    if ok and not app.config["MAIL_SERVER"] and app.config["MODO_DEV"]:
-        flash(f"[MODO DEV] Link que seria enviado por e-mail: {link}", "dev")
-    return ok
 
 
 def login_aluno_requerido(view):
@@ -429,6 +450,157 @@ def arquivo_grande(_e):
 
 
 # ---------------------------------------------------------------------------
+# Armazenamento dos PDFs: pasta local ou Cloudflare R2
+# ---------------------------------------------------------------------------
+class ArmazenamentoLocal:
+    descricao = "pasta local"
+
+    def __init__(self, pasta):
+        self.pasta = Path(pasta)
+        self.pasta.mkdir(parents=True, exist_ok=True)
+
+    def salvar(self, nome, arquivo):
+        arquivo.seek(0)
+        with open(self.pasta / nome, "wb") as f:
+            while bloco := arquivo.read(1024 * 1024):
+                f.write(bloco)
+
+    def existe(self, nome):
+        return (self.pasta / nome).exists()
+
+    def renomear(self, de, para):
+        if self.existe(de):
+            os.replace(self.pasta / de, self.pasta / para)
+
+    def apagar(self, nome):
+        try:
+            os.remove(self.pasta / nome)
+        except FileNotFoundError:
+            pass
+
+    def resposta(self, nome, nome_download):
+        return send_from_directory(self.pasta, nome, download_name=nome_download,
+                                   mimetype="application/pdf")
+
+
+class ArmazenamentoR2:
+    """Cloudflare R2 (API compatível com S3). O bucket fica privado: os PDFs
+    passam sempre pelo sistema, que confere quem pode ver cada arquivo."""
+    descricao = "Cloudflare R2"
+
+    def __init__(self, cfg):
+        import boto3
+        from botocore.config import Config
+        self.bucket = cfg["R2_BUCKET"]
+        endpoint = cfg["R2_ENDPOINT"] or f"https://{cfg['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+        self.s3 = boto3.client(
+            "s3", endpoint_url=endpoint, region_name="auto",
+            aws_access_key_id=cfg["R2_ACCESS_KEY_ID"],
+            aws_secret_access_key=cfg["R2_SECRET_ACCESS_KEY"],
+            config=Config(signature_version="s3v4", retries={"max_attempts": 3}))
+
+    def salvar(self, nome, arquivo):
+        arquivo.seek(0)
+        self.s3.upload_fileobj(arquivo, self.bucket, nome,
+                               ExtraArgs={"ContentType": "application/pdf"})
+
+    def existe(self, nome):
+        from botocore.exceptions import ClientError
+        try:
+            self.s3.head_object(Bucket=self.bucket, Key=nome)
+            return True
+        except ClientError:
+            return False
+
+    def renomear(self, de, para):
+        if self.existe(de):
+            self.s3.copy_object(Bucket=self.bucket, Key=para,
+                                CopySource={"Bucket": self.bucket, "Key": de},
+                                ContentType="application/pdf", MetadataDirective="REPLACE")
+            self.s3.delete_object(Bucket=self.bucket, Key=de)
+
+    def apagar(self, nome):
+        self.s3.delete_object(Bucket=self.bucket, Key=nome)
+
+    def resposta(self, nome, nome_download):
+        from botocore.exceptions import ClientError
+        from flask import Response
+        try:
+            obj = self.s3.get_object(Bucket=self.bucket, Key=nome)
+        except ClientError:
+            abort(404)
+        return Response(
+            obj["Body"].iter_chunks(64 * 1024), mimetype="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{nome_download}"',
+                     "Content-Length": str(obj["ContentLength"]),
+                     "Cache-Control": "private, no-store"})
+
+
+def r2_configurado(cfg=None):
+    cfg = cfg or app.config
+    return all(cfg.get(k) for k in ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")) and \
+        bool(cfg.get("R2_ACCOUNT_ID") or cfg.get("R2_ENDPOINT"))
+
+
+_armazenamento = {}
+
+
+def armazenamento():
+    """Devolve o armazenamento em uso (R2 se configurado; senão, a pasta local)."""
+    chave = ("r2", app.config.get("R2_BUCKET"), app.config.get("R2_ENDPOINT"),
+             app.config.get("R2_ACCOUNT_ID")) if r2_configurado() else ("local", app.config["UPLOAD_FOLDER"])
+    if chave not in _armazenamento:
+        _armazenamento[chave] = (ArmazenamentoR2(app.config) if chave[0] == "r2"
+                                 else ArmazenamentoLocal(app.config["UPLOAD_FOLDER"]))
+    return _armazenamento[chave]
+
+
+# ---------------------------------------------------------------------------
+# Nome dos arquivos: <matrícula>_<curso>_<nº>.pdf
+# ---------------------------------------------------------------------------
+def trecho_curso(curso):
+    """'Engenharia Eletrônica' -> 'Engenharia_Eletronica' (sem acentos nem espaços)."""
+    sem_acento = unicodedata.normalize("NFKD", curso or "").encode("ascii", "ignore").decode()
+    return re.sub(r"[^A-Za-z0-9]+", "_", sem_acento).strip("_") or "Curso"
+
+
+def renomeia_arquivos_do_aluno(db, matricula):
+    """Dá a todos os certificados do aluno o nome <matrícula>_<curso>_<n>.pdf.
+    O número de cada certificado é fixo: excluir um não renumera os outros. Usado no envio e quando a matrícula ou o
+    curso do aluno mudam. Renomeia em duas etapas para evitar colisões."""
+    aluno = db.execute("SELECT curso FROM alunos WHERE matricula = ?", (matricula,)).fetchone()
+    if aluno is None:
+        return
+    arm = armazenamento()
+    # Certificados ainda sem número (novos ou de versões anteriores) recebem o próximo livre.
+    proximo = db.execute("SELECT COALESCE(MAX(numero), 0) FROM certificados WHERE matricula = ?",
+                         (matricula,)).fetchone()[0]
+    for r in db.execute("SELECT id FROM certificados WHERE matricula = ? AND numero IS NULL "
+                        "ORDER BY id", (matricula,)).fetchall():
+        proximo += 1
+        db.execute("UPDATE certificados SET numero = ? WHERE id = ?", (proximo, r["id"]))
+    certs = db.execute("SELECT id, arquivo, numero FROM certificados WHERE matricula = ? ORDER BY id",
+                       (matricula,)).fetchall()
+    base = f"{matricula}_{trecho_curso(aluno['curso'])}"
+    alvos = {c["id"]: f"{base}_{c['numero']}.pdf" for c in certs}
+    pendentes = [c for c in certs if c["arquivo"] != alvos[c["id"]]]
+    temporarios = {}
+    for c in pendentes:  # 1ª etapa: nomes temporários
+        tmp = f".renomeando-{uuid.uuid4().hex}.pdf"
+        arm.renomear(c["arquivo"], tmp)
+        temporarios[c["id"]] = tmp
+    for c in pendentes:  # 2ª etapa: nomes finais
+        final = alvos[c["id"]]
+        arm.renomear(temporarios[c["id"]], final)
+        db.execute("UPDATE certificados SET arquivo = ?, nome_original = ? WHERE id = ?",
+                   (final, final, c["id"]))
+    for c in certs:  # garante nome exibido = nome do arquivo
+        if c["id"] not in temporarios:
+            db.execute("UPDATE certificados SET nome_original = ? WHERE id = ?",
+                       (alvos[c["id"]], c["id"]))
+
+
+# ---------------------------------------------------------------------------
 # Área do aluno
 # ---------------------------------------------------------------------------
 @app.route("/", methods=["GET", "POST"])
@@ -436,25 +608,27 @@ def login():
     if session.get("aluno"):
         return redirect(url_for("painel_aluno"))
     if request.method == "POST":
-        mat = normaliza_matricula(request.form.get("matricula"))
-        senha = request.form.get("senha", "")
+        mat = so_digitos(request.form.get("matricula"))
+        cpf = so_digitos(request.form.get("cpf"))
         aluno = get_db().execute(
             "SELECT * FROM alunos WHERE matricula = ?", (mat,)
-        ).fetchone()
-        if aluno is not None and not aluno["ativo"]:
+        ).fetchone() if mat else None
+        if mat is None or cpf is None:
+            flash("Informe a matrícula e o CPF usando somente números.", "erro")
+        elif aluno is not None and not aluno["ativo"]:
             flash(MSG_BLOQUEADO, "erro")
         elif aluno is None:
             flash("Matrícula ainda não cadastrada. Faça o seu primeiro acesso.", "info")
             return redirect(url_for("primeiro_acesso", matricula=mat))
-        elif not aluno["senha_hash"]:
-            flash("Este é o seu primeiro acesso: crie sua senha antes de entrar.", "info")
+        elif not aluno["cpf_hash"]:
+            flash("Seu cadastro ainda não tem CPF. Complete-o no primeiro acesso.", "info")
             return redirect(url_for("primeiro_acesso", matricula=mat))
-        elif check_password_hash(aluno["senha_hash"], senha):
+        elif check_password_hash(aluno["cpf_hash"], cpf):
             session.clear()
             session["aluno"] = mat
             return redirect(url_for("painel_aluno"))
         else:
-            flash("Matrícula ou senha incorretas.", "erro")
+            flash("Matrícula ou CPF incorretos.", "erro")
     return render_template("login.html")
 
 
@@ -462,21 +636,11 @@ MSG_BLOQUEADO = ("O acesso desta matrícula está bloqueado. "
                  "Procure a coordenação de extensão da FCTE.")
 
 
-def _envia_link_aluno(aluno, primeiro_acesso):
-    email = email_do_aluno(aluno["matricula"])
-    if envia_link_senha("aluno", aluno["matricula"], email, aluno["senha_hash"], primeiro_acesso):
-        flash(f"Enviamos um link para {mascara_email(email)}. Verifique sua caixa de entrada.", "ok")
-        return redirect(url_for("login"))
-    flash("Não foi possível enviar o e-mail agora. Tente novamente mais tarde.", "erro")
-    return None
-
-
 @app.route("/primeiro-acesso", methods=["GET", "POST"])
 def primeiro_acesso():
-    """Cadastro do aluno: informa nome, matrícula, curso e currículo e recebe no
-    e-mail institucional o link para criar a senha. Enquanto a senha não for
-    criada, os dados podem ser reenviados (e corrigidos)."""
-    dados = {"matricula": request.args.get("matricula", "")}
+    """Cadastro do aluno: nome, matrícula, curso, currículo e CPF. Ao concluir,
+    o aluno já entra no sistema. Depois, o acesso é sempre por matrícula + CPF."""
+    dados = {"matricula": so_digitos(request.args.get("matricula")) or ""}
     if request.method == "POST":
         dados, erros = valida_dados_aluno(request.form)
         db = get_db()
@@ -485,8 +649,9 @@ def primeiro_acesso():
         if not erros and existente and not existente["ativo"]:
             flash(MSG_BLOQUEADO, "erro")
             return redirect(url_for("login"))
-        if not erros and existente and existente["senha_hash"]:
-            flash("Esta matrícula já tem cadastro. Entre com sua senha ou use “Esqueci minha senha”.", "info")
+        if not erros and existente and existente["cpf_hash"]:
+            flash("Esta matrícula já está cadastrada. Entre com sua matrícula e seu CPF. "
+                  "Se houver algum problema, procure a coordenação de extensão da FCTE.", "info")
             return redirect(url_for("login"))
         if erros:
             for e in erros:
@@ -494,73 +659,19 @@ def primeiro_acesso():
         else:
             with db:
                 db.execute(
-                    """INSERT INTO alunos (matricula, nome, curso, curriculo, ativo)
-                       VALUES (:matricula, :nome, :curso, :curriculo, 1)
+                    """INSERT INTO alunos (matricula, nome, curso, curriculo, cpf_hash, ativo)
+                       VALUES (?, ?, ?, ?, ?, 1)
                        ON CONFLICT(matricula) DO UPDATE SET nome = excluded.nome,
-                         curso = excluded.curso, curriculo = excluded.curriculo, ativo = 1""",
-                    dados)
-            aluno = db.execute("SELECT * FROM alunos WHERE matricula = ?",
-                               (dados["matricula"],)).fetchone()
-            resp = _envia_link_aluno(aluno, primeiro_acesso=True)
-            if resp:
-                return resp
+                         curso = excluded.curso, curriculo = excluded.curriculo,
+                         cpf_hash = excluded.cpf_hash, ativo = 1""",
+                    (dados["matricula"], dados["nome"], dados["curso"], dados["curriculo"],
+                     hash_cpf(dados["cpf"])))
+            session.clear()
+            session["aluno"] = dados["matricula"]
+            flash("Cadastro concluído! Nos próximos acessos, entre com sua matrícula e seu CPF.", "ok")
+            return redirect(url_for("painel_aluno"))
+    dados.pop("cpf", None)  # o CPF nunca volta preenchido para a tela
     return render_template("primeiro_acesso.html", dados=dados, cursos=CURSOS_FCTE)
-
-
-@app.route("/esqueci-senha", methods=["GET", "POST"])
-def esqueci_senha():
-    if request.method == "POST":
-        mat = normaliza_matricula(request.form.get("matricula"))
-        aluno = get_db().execute("SELECT * FROM alunos WHERE matricula = ?",
-                                 (mat,)).fetchone()
-        if aluno is not None and not aluno["ativo"]:
-            flash(MSG_BLOQUEADO, "erro")
-            return redirect(url_for("login"))
-        if aluno is None:
-            flash("Matrícula não cadastrada. Faça o seu primeiro acesso.", "info")
-            return redirect(url_for("primeiro_acesso", matricula=mat))
-        resp = _envia_link_aluno(aluno, primeiro_acesso=not aluno["senha_hash"])
-        if resp:
-            return resp
-    return render_template("solicitar_link.html", primeiro_acesso=False, matricula="")
-
-
-@app.route("/definir-senha/<token>", methods=["GET", "POST"])
-def definir_senha(token):
-    dados = le_token(token)
-    if not dados:
-        flash("Link inválido ou expirado. Solicite um novo.", "erro")
-        return redirect(url_for("login"))
-    db = get_db()
-    if dados["t"] == "aluno":
-        pessoa = db.execute("SELECT matricula AS ident, nome, senha_hash FROM alunos "
-                            "WHERE matricula = ? AND ativo = 1", (dados["id"],)).fetchone()
-        tabela, chave, destino = "alunos", "matricula", "login"
-    else:
-        pessoa = db.execute("SELECT id AS ident, nome, senha_hash FROM professores "
-                            "WHERE id = ? AND ativo = 1", (dados["id"],)).fetchone()
-        tabela, chave, destino = "professores", "id", "admin_login"
-    if pessoa is None or (pessoa["senha_hash"] or "")[-16:] != dados["h"]:
-        flash("Este link já foi utilizado ou não é mais válido.", "erro")
-        return redirect(url_for(destino))
-
-    if request.method == "POST":
-        senha = request.form.get("senha", "")
-        erro = senha_valida(senha)
-        if not erro and senha != request.form.get("confirmacao", ""):
-            erro = "As senhas não coincidem."
-        if erro:
-            flash(erro, "erro")
-        else:
-            with db:
-                db.execute(f"UPDATE {tabela} SET senha_hash = ? WHERE {chave} = ?",
-                           (generate_password_hash(senha), pessoa["ident"]))
-                if tabela == "professores":
-                    db.execute("UPDATE professores SET trocar_senha = 0 WHERE id = ?",
-                               (pessoa["ident"],))
-            flash("Senha definida com sucesso. Faça login.", "ok")
-            return redirect(url_for(destino))
-    return render_template("definir_senha.html", nome=pessoa["nome"])
 
 
 @app.route("/painel")
@@ -589,7 +700,7 @@ def enviar_certificado():
 
     atuacao = f.get("atuacao")
     if atuacao == "ouvinte":
-        erros.append("Somente certificados em que você atuou como participante efetivo "
+        erros.append("Somente certificados em que você atuou como membro da equipe organizadora "
                      "do evento são aceitos. Certificados de ouvinte não podem ser enviados.")
     elif atuacao != "participante":
         erros.append("Informe como você atuou no evento.")
@@ -634,18 +745,26 @@ def enviar_certificado():
             flash(e, "erro")
         return redirect(url_for("painel_aluno"))
 
-    nome_salvo = f"{uuid.uuid4().hex}.pdf"
-    arq.save(os.path.join(app.config["UPLOAD_FOLDER"], nome_salvo))
+    nome_temp = f".envio-{uuid.uuid4().hex}.pdf"
+    try:
+        armazenamento().salvar(nome_temp, arq.stream)
+    except Exception:
+        app.logger.exception("Falha ao guardar o PDF (%s)", armazenamento().descricao)
+        flash("Não foi possível guardar o arquivo agora. Tente novamente em alguns minutos.", "erro")
+        return redirect(url_for("painel_aluno"))
     db = get_db()
     with db:
         db.execute(
             """INSERT INTO certificados (matricula, arquivo, nome_original, horas,
                    data_inicio, data_fim, atuacao, enviado_em)
                VALUES (?, ?, ?, ?, ?, ?, 'participante', ?)""",
-            (g.aluno["matricula"], nome_salvo, os.path.basename(arq.filename)[:200],
+            (g.aluno["matricula"], nome_temp, nome_temp,
              horas, ini.isoformat(), fim.isoformat(), agora()),
         )
-    flash("Certificado enviado! Ele aguardará avaliação do colegiado de extensão.", "ok")
+        renomeia_arquivos_do_aluno(db, g.aluno["matricula"])
+    nome = db.execute("SELECT nome_original FROM certificados WHERE matricula = ? "
+                      "ORDER BY id DESC LIMIT 1", (g.aluno["matricula"],)).fetchone()[0]
+    flash(f"Certificado enviado como {nome}! Ele aguardará avaliação do colegiado de extensão.", "ok")
     return redirect(url_for("painel_aluno"))
 
 
@@ -656,8 +775,30 @@ def arquivo_aluno(cid):
                          (cid, g.aluno["matricula"])).fetchone()
     if c is None:
         abort(404)
-    return send_from_directory(app.config["UPLOAD_FOLDER"], c["arquivo"],
-                               download_name=c["nome_original"], mimetype="application/pdf")
+    return armazenamento().resposta(c["arquivo"], c["nome_original"])
+
+
+@app.route("/certificado/<int:cid>/excluir", methods=["POST"])
+@login_aluno_requerido
+def excluir_certificado(cid):
+    """O aluno pode excluir certificados aguardando avaliação ou recusados.
+    Certificados validados não podem ser excluídos."""
+    db = get_db()
+    c = db.execute("SELECT * FROM certificados WHERE id = ? AND matricula = ?",
+                   (cid, g.aluno["matricula"])).fetchone()
+    if c is None:
+        abort(404)
+    if c["status"] == "validado":
+        flash("Certificados já validados pelo colegiado de extensão não podem ser excluídos.", "erro")
+        return redirect(url_for("painel_aluno"))
+    with db:
+        db.execute("DELETE FROM certificados WHERE id = ?", (cid,))
+    try:
+        armazenamento().apagar(c["arquivo"])
+    except Exception:
+        app.logger.exception("Falha ao apagar %s", c["arquivo"])
+    flash(f"Certificado {c['nome_original']} excluído.", "ok")
+    return redirect(url_for("painel_aluno"))
 
 
 @app.route("/sair")
@@ -730,22 +871,6 @@ def trocar_senha():
     return render_template("trocar_senha.html", obrigatoria=obrigatoria)
 
 
-@app.route("/colegiado/esqueci-senha", methods=["GET", "POST"])
-def admin_esqueci_senha():
-    if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        prof = get_db().execute(
-            "SELECT * FROM professores WHERE email = ? AND ativo = 1", (email,)
-        ).fetchone()
-        if prof:
-            envia_link_senha("professor", prof["id"], prof["email"], prof["senha_hash"],
-                             primeiro_acesso=not prof["senha_hash"])
-        # Mensagem neutra: não revela quais e-mails estão credenciados
-        flash("Se o e-mail estiver credenciado, você receberá um link para definir a senha.", "ok")
-        return redirect(url_for("admin_login"))
-    return render_template("admin_esqueci.html")
-
-
 @app.route("/colegiado/certificados")
 @login_professor_requerido
 def admin_painel():
@@ -787,8 +912,7 @@ def arquivo_admin(cid):
     c = get_db().execute("SELECT * FROM certificados WHERE id = ?", (cid,)).fetchone()
     if c is None:
         abort(404)
-    return send_from_directory(app.config["UPLOAD_FOLDER"], c["arquivo"],
-                               download_name=c["nome_original"], mimetype="application/pdf")
+    return armazenamento().resposta(c["arquivo"], c["nome_original"])
 
 
 @app.route("/colegiado/certificado/<int:cid>/avaliar", methods=["POST"])
@@ -836,39 +960,9 @@ def avaliar(cid):
     if acao == "validar":
         session["ultima_reuniao"] = reuniao  # pré-preenche as próximas validações
 
-    if notifica_aluno(cert, acao, horas_val, motivo, reuniao):
-        flash(f"Certificado #{cid} {'validado' if acao == 'validar' else 'recusado'}. "
-              f"O aluno foi avisado por e-mail.", "ok")
-    else:
-        flash(f"Certificado #{cid} {'validado' if acao == 'validar' else 'recusado'}, "
-              f"mas não foi possível enviar o e-mail ao aluno.", "erro")
+    flash(f"Certificado de {cert['nome']} {'validado' if acao == 'validar' else 'recusado'}. "
+          f"O resultado já aparece no painel do aluno.", "ok")
     return volta
-
-
-def notifica_aluno(cert, acao, horas_val, motivo, reuniao=None):
-    periodo = f"{data_br(cert['data_inicio'])} a {data_br(cert['data_fim'])}"
-    if acao == "validar":
-        parcial = "" if horas_val == cert["horas"] else \
-            f" (de {fmt_horas(cert['horas'])} informadas no envio)"
-        assunto = "Certificado de extensão validado"
-        resultado = (f"foi VALIDADO pelo colegiado de extensão.\n\n"
-                     f"Carga horária validada: {fmt_horas(horas_val)}{parcial}.\n"
-                     f"Reunião do colegiado de extensão: {reuniao}.")
-    else:
-        assunto = "Certificado de extensão recusado"
-        resultado = (f"foi RECUSADO pelo colegiado de extensão.\n\n"
-                     f"Motivo: {motivo}")
-    corpo = (
-        f"Olá, {cert['nome']},\n\n"
-        f"Seu certificado \"{cert['nome_original']}\" (período {periodo}) {resultado}\n\n"
-        f"Acompanhe seus certificados em: {url_for('login', _external=True)}\n\n"
-        f"Colegiado de Extensão — FCTE/UnB"
-    )
-    destino = email_do_aluno(cert["matricula"])
-    ok = enviar_email(destino, assunto, corpo)
-    if ok and not app.config["MAIL_SERVER"] and app.config["MODO_DEV"]:
-        flash(f"[MODO DEV] E-mail que seria enviado para {destino}: {corpo}", "dev")
-    return ok
 
 
 @app.route("/colegiado/sair")
@@ -958,8 +1052,7 @@ def arquivo_coord(cid):
            WHERE c.id = ? AND c.status = 'validado'""", (cid,)).fetchone()
     if c is None or c["curso"] not in g.cursos_coordenados:
         abort(404)
-    return send_from_directory(app.config["UPLOAD_FOLDER"], c["arquivo"],
-                               download_name=c["nome_original"], mimetype="application/pdf")
+    return armazenamento().resposta(c["arquivo"], c["nome_original"])
 
 
 # ---------------------------------------------------------------------------
@@ -979,7 +1072,7 @@ def super_painel():
                             (int(request.args["editar"]),)).fetchone()
     contagem = {r["curso"]: r["n"] for r in db.execute(
         """SELECT curso, COUNT(*) AS n FROM alunos
-           WHERE ativo = 1 AND senha_hash IS NOT NULL AND matricula <> ?
+           WHERE ativo = 1 AND cpf_hash IS NOT NULL AND matricula <> ?
            GROUP BY curso""", (ALUNO_TESTE[0],))}
     alunos_por_curso = [{"curso": c, "n": contagem.get(c, 0)} for c in CURSOS_FCTE]
     return render_template(
@@ -1093,9 +1186,9 @@ def super_alunos():
         sql += " AND a.curso = ?"
         params.append(curso)
     if situacao == "pendente":
-        sql += " AND a.senha_hash IS NULL"
+        sql += " AND a.cpf_hash IS NULL"
     elif situacao == "concluido":
-        sql += " AND a.senha_hash IS NOT NULL AND a.ativo = 1"
+        sql += " AND a.cpf_hash IS NOT NULL AND a.ativo = 1"
     elif situacao == "bloqueado":
         sql += " AND a.ativo = 0"
     sql += " GROUP BY a.matricula ORDER BY a.nome"
@@ -1107,12 +1200,12 @@ def super_alunos():
 @app.route("/superusuario/aluno/novo", methods=["GET", "POST"])
 @servidor_requerido("superusuario")
 def super_novo_aluno():
-    """Cadastro de aluno pelo superusuário. Com senha, o aluno já pode entrar;
-    sem senha, ele conclui o cadastro pelo primeiro acesso (link no e-mail)."""
+    """Cadastro de aluno pelo superusuário. Com CPF, o aluno já pode entrar
+    (matrícula + CPF); sem CPF, ele completa o cadastro pelo primeiro acesso."""
     dados, ativo = {"curso": ""}, 1
     if request.method == "POST":
-        dados, erros = valida_dados_aluno(request.form)
-        senha = request.form.get("senha", "")
+        dados, erros = valida_dados_aluno(request.form, exigir_cpf=False)
+        cpf = dados.pop("cpf")
         ativo = 1 if request.form.get("ativo") else 0
         db = get_db()
         if not erros and db.execute("SELECT 1 FROM alunos WHERE matricula = ?",
@@ -1124,13 +1217,13 @@ def super_novo_aluno():
         else:
             with db:
                 db.execute(
-                    """INSERT INTO alunos (matricula, nome, curso, curriculo, senha_hash, ativo)
+                    """INSERT INTO alunos (matricula, nome, curso, curriculo, cpf_hash, ativo)
                        VALUES (?, ?, ?, ?, ?, ?)""",
                     (dados["matricula"], dados["nome"], dados["curso"], dados["curriculo"],
-                     generate_password_hash(senha) if senha else None, ativo))
+                     hash_cpf(cpf) if cpf else None, ativo))
             flash(f"Aluno {dados['nome']} cadastrado. " + (
-                "Informe a senha a ele." if senha else
-                "Sem senha definida: ele conclui o cadastro pelo primeiro acesso."), "ok")
+                "Ele já pode entrar com a matrícula e o CPF." if cpf else
+                "Sem CPF informado: ele completa o cadastro pelo primeiro acesso."), "ok")
             return redirect(url_for("super_alunos", busca=dados["matricula"]))
     return render_template("super_aluno_editar.html", aluno=None, dados=dados,
                            ativo=ativo, cursos=CURSOS_FCTE)
@@ -1144,8 +1237,8 @@ def super_editar_aluno(matricula):
     if aluno is None:
         abort(404)
     if request.method == "POST":
-        dados, erros = valida_dados_aluno(request.form)
-        senha = request.form.get("senha", "")
+        dados, erros = valida_dados_aluno(request.form, exigir_cpf=False)
+        cpf = dados.pop("cpf")
         ativo = 1 if request.form.get("ativo") else 0
         nova = dados["matricula"]
         if nova != matricula and db.execute(
@@ -1167,14 +1260,16 @@ def super_editar_aluno(matricula):
             if nova != matricula:
                 db.execute("UPDATE certificados SET matricula = ? WHERE matricula = ?",
                            (nova, matricula))
-            if senha:
-                db.execute("UPDATE alunos SET senha_hash = ? WHERE matricula = ?",
-                           (generate_password_hash(senha), nova))
+            if cpf:
+                db.execute("UPDATE alunos SET cpf_hash = ? WHERE matricula = ?",
+                           (hash_cpf(cpf), nova))
+            if nova != matricula or dados["curso"] != aluno["curso"]:
+                renomeia_arquivos_do_aluno(db, nova)
         partes = ["Dados de " + dados["nome"] + " atualizados"]
         if nova != matricula:
             partes.append(f"matrícula alterada de {matricula} para {nova}")
-        if senha:
-            partes.append("senha redefinida (informe a nova senha ao aluno)")
+        if cpf:
+            partes.append("CPF atualizado")
         flash("; ".join(partes) + ".", "ok")
         return redirect(url_for("super_alunos", busca=nova))
     return render_template("super_aluno_editar.html", aluno=aluno, dados=dict(aluno),
@@ -1205,6 +1300,43 @@ def fmt_horas(valor):
 # ---------------------------------------------------------------------------
 # Comandos de linha de comando
 # ---------------------------------------------------------------------------
+@app.cli.command("enviar-pdfs-para-r2")
+def cmd_enviar_r2():
+    """Copia para o Cloudflare R2 os PDFs que estão na pasta local (UPLOAD_FOLDER).
+    Use uma vez, ao passar a usar o R2. Os arquivos locais não são apagados."""
+    if not r2_configurado():
+        raise click.ClickException("Defina R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY e R2_BUCKET.")
+    init_db()
+    local = ArmazenamentoLocal(app.config["UPLOAD_FOLDER"])
+    r2 = armazenamento()
+    enviados = ja_existiam = faltando = 0
+    for (nome,) in get_db().execute("SELECT arquivo FROM certificados ORDER BY id"):
+        if r2.existe(nome):
+            ja_existiam += 1
+        elif local.existe(nome):
+            with open(local.pasta / nome, "rb") as f:
+                r2.salvar(nome, f)
+            enviados += 1
+        else:
+            faltando += 1
+            click.echo(f"  não encontrado na pasta local: {nome}")
+    click.echo(f"{enviados} PDFs enviados ao R2, {ja_existiam} já estavam lá, {faltando} não encontrados.")
+
+
+@app.cli.command("testar-armazenamento")
+def cmd_testar_armazenamento():
+    """Grava, lê e apaga um arquivo de teste para conferir a configuração."""
+    arm = armazenamento()
+    nome = f".teste-{uuid.uuid4().hex}.pdf"
+    try:
+        arm.salvar(nome, io.BytesIO(b"%PDF-1.4 teste"))
+        ok = arm.existe(nome)
+        arm.apagar(nome)
+    except Exception as e:
+        raise click.ClickException(f"Falha no armazenamento ({arm.descricao}): {e}")
+    click.echo(f"Armazenamento em uso: {arm.descricao} — " + ("funcionando." if ok else "o arquivo não foi encontrado após gravar."))
+
+
 @app.cli.command("criar-professor")
 @click.argument("email")
 @click.argument("nome")
@@ -1263,18 +1395,6 @@ def cmd_descredenciar(email):
         n = db.execute("UPDATE professores SET ativo = 0 WHERE email = ?",
                        (email.strip().lower(),)).rowcount
     click.echo("Professor descredenciado." if n else "E-mail não encontrado.")
-
-
-@app.cli.command("resetar-senha-aluno")
-@click.argument("matricula")
-def cmd_resetar_aluno(matricula):
-    """Apaga a senha do aluno; no próximo login ele refaz o primeiro acesso."""
-    init_db()
-    db = get_db()
-    with db:
-        n = db.execute("UPDATE alunos SET senha_hash = NULL WHERE matricula = ?",
-                       (normaliza_matricula(matricula),)).rowcount
-    click.echo("Senha removida." if n else "Matrícula não encontrada.")
 
 
 if __name__ == "__main__":

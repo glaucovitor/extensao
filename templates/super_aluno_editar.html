@@ -18,7 +18,7 @@
     </label>
     <div class="linha">
       <label>Matrícula
-        <input name="matricula" inputmode="numeric" pattern="[0-9]{5,12}" title="Somente números"
+        <input name="matricula" inputmode="numeric" pattern="[0-9]{5,12}"  title="Somente números" data-somente-numeros="12"
                value="{{ dados.matricula or '' }}" required>
       </label>
       <label>Número do currículo
@@ -32,25 +32,29 @@
       </select>
     </label>
     {% if aluno %}
-      <label>Nova senha <small class="dica">(deixe em branco para manter a atual)</small>
-        <input name="senha" type="text" autocomplete="off">
+      <label>Novo CPF <small class="dica">(somente os 11 números; deixe em branco para manter o atual)</small>
+        <input name="cpf" inputmode="numeric" pattern="[0-9]{11}"  title="Somente os 11 números do CPF"
+             data-somente-numeros="11" autocomplete="off">
       </label>
-      {% if not aluno.senha_hash %}
-        <p class="dica">Este aluno ainda não criou a senha. Se você definir uma aqui, ele já poderá entrar com ela.</p>
+      {% if not aluno.cpf_hash %}
+        <p class="dica">Este aluno ainda não tem CPF cadastrado. Se você informar um aqui, ele já poderá entrar com a matrícula e esse CPF.</p>
+      {% else %}
+        <p class="dica">Por segurança, o CPF fica guardado de forma cifrada e não é exibido. Para corrigi-lo, informe o CPF correto acima.</p>
       {% endif %}
     {% else %}
-      <label>Senha inicial <small class="dica">(opcional)</small>
-        <input name="senha" type="text" autocomplete="off">
+      <label>CPF <small class="dica">(somente os 11 números; opcional)</small>
+        <input name="cpf" inputmode="numeric" pattern="[0-9]{11}"  title="Somente os 11 números do CPF"
+             data-somente-numeros="11" autocomplete="off">
       </label>
-      <p class="dica">Com senha, o aluno já pode entrar com a matrícula e essa senha. Sem senha, ele conclui o
-        cadastro pelo "Primeiro acesso", recebendo o link no e-mail institucional.</p>
+      <p class="dica">Com CPF, o aluno já pode entrar com a matrícula e o CPF. Sem CPF, ele completa o
+        cadastro pelo "Primeiro acesso".</p>
     {% endif %}
     <label class="opcao"><input type="checkbox" name="ativo" value="1" {{ 'checked' if ativo }}>
       <span>Acesso liberado <small>(desmarque para bloquear o login deste aluno{{ '; os certificados são mantidos' if aluno }})</small></span></label>
 
     {% if aluno %}
-    <p class="dica">Ao trocar a matrícula, os certificados do aluno passam para a nova matrícula, e os próximos
-      e-mails vão para o novo endereço institucional.</p>
+    <p class="dica">Ao trocar a matrícula ou o curso, os certificados do aluno acompanham a mudança
+      e os arquivos são renomeados.</p>
     {% endif %}
 
     <div class="botoes">

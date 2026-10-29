@@ -24,11 +24,11 @@
 
       <fieldset class="atuacao">
         <legend>Você atuou como:</legend>
-        <label class="opcao"><input type="radio" name="atuacao" value="participante" required> Participante efetivo</label>
+        <label class="opcao"><input type="radio" name="atuacao" value="participante" required> Membro da equipe organizadora</label>
         <label class="opcao"><input type="radio" name="atuacao" value="ouvinte"> Ouvinte</label>
       </fieldset>
       <div class="aviso aviso-erro" id="msg-ouvinte" hidden>
-        Certificados de <strong>ouvinte</strong> não são aceitos. O sistema só aceita certificados em que você atuou como participante efetivo do evento.
+        Certificados de <strong>ouvinte</strong> não são aceitos. O sistema só aceita certificados em que você atuou como membro da equipe organizadora do evento.
       </div>
 
       <div id="campos-envio">
@@ -74,6 +74,13 @@
             {% endif %}
             {% if c.status == 'recusado' and c.motivo %}
               <div class="motivo"><strong>Motivo da recusa:</strong> {{ c.motivo }}</div>
+            {% endif %}
+            {% if c.status != 'validado' %}
+              <form method="post" action="{{ url_for('excluir_certificado', cid=c.id) }}" class="form-excluir"
+                    onsubmit="return confirm('Excluir o certificado {{ c.nome_original }}? Esta ação não pode ser desfeita.')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="link-desfazer">Excluir certificado</button>
+              </form>
             {% endif %}
           </li>
         {% endfor %}

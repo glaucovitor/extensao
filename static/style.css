@@ -197,3 +197,36 @@ tr.inativo td { color: var(--suave); background: #fafbfc; }
 .link-topo:hover { opacity: 1; }
 .barra-lista { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .6rem; flex-wrap: wrap; }
 .barra-lista .mini-info { margin: 0; }
+.form-excluir { margin: .5rem 0 0; text-align: right; }
+
+/* Destaque do primeiro acesso (login do aluno) */
+.destaque-primeiro-acesso {
+  display: flex; align-items: center; gap: .9rem; flex-wrap: wrap;
+  background: var(--verde); color: #fff; text-decoration: none;
+  border-radius: var(--raio); padding: 1rem 1.2rem; margin-bottom: 1rem;
+  box-shadow: 0 4px 14px rgba(0, 102, 51, .25); transition: transform .12s, box-shadow .12s;
+}
+.destaque-primeiro-acesso:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 102, 51, .32); }
+.dpa-icone { font-size: 1.6rem; line-height: 1; color: #ffd84d; }
+.dpa-texto { display: flex; flex-direction: column; flex: 1; min-width: 180px; }
+.dpa-texto strong { font-size: 1.1rem; }
+.dpa-texto span { font-size: .9rem; opacity: .92; }
+.dpa-botao { background: #fff; color: var(--verde); font-weight: 700; font-size: .9rem; padding: .5rem .9rem; border-radius: 7px; white-space: nowrap; }
+.btn-destaque { display: block; margin-top: 1rem; background: #fff; color: var(--verde); border: 2px solid var(--verde); }
+.btn-destaque:hover { background: var(--verde-claro); }
+
+/* Ajuda: onde encontrar o currículo */
+.ajuda-curriculo { margin-top: -.4rem; border: 1px solid #c4d3e4; background: var(--azul-claro); border-radius: 7px; }
+.ajuda-curriculo summary { cursor: pointer; padding: .55rem .8rem; color: var(--azul); font-weight: 600; font-size: .9rem; }
+.ajuda-curriculo summary::before { content: "?"; display: inline-flex; align-items: center; justify-content: center;
+  width: 1.2rem; height: 1.2rem; margin-right: .45rem; border-radius: 50%; background: var(--azul); color: #fff; font-size: .78rem; }
+.ajuda-corpo { padding: 0 .9rem .9rem; font-size: .9rem; }
+.ajuda-corpo ol { margin: .2rem 0 .8rem; padding-left: 1.2rem; }
+.ajuda-corpo li { margin-bottom: .25rem; }
+.mini-historico { background: #fff; border: 1px solid var(--borda); border-radius: 6px; padding: .6rem .8rem; font-size: .82rem; margin-bottom: .6rem; }
+.mh-titulo { font-weight: 700; text-align: center; margin-bottom: .4rem; }
+.mh-secao { background: #eef1f5; font-weight: 600; padding: .25rem .4rem; margin-bottom: .3rem; }
+.mh-linha { display: flex; gap: .4rem; padding: .15rem .4rem; }
+.mh-linha span:first-child { color: var(--suave); min-width: 72px; }
+.mh-destaque { background: #fff4c2; outline: 2px solid #e0a800; border-radius: 4px; font-weight: 700; }
+.mh-destaque em { margin-left: auto; color: #8a5a00; font-style: normal; font-weight: 600; }

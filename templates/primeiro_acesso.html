@@ -4,15 +4,15 @@
 {% block conteudo %}
 <section class="cartao">
   <h1>Primeiro acesso</h1>
-  <p class="sub">Preencha seus dados. Enviaremos ao seu e-mail institucional (<em>matrícula@aluno.unb.br</em>) um link para você criar a senha.</p>
+  <p class="sub">Preencha seus dados para se cadastrar. Depois, você entrará no sistema sempre com sua matrícula e seu CPF.</p>
   <form method="post" class="form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Nome completo
       <input name="nome" value="{{ dados.nome or '' }}" autocomplete="name" required autofocus>
     </label>
-    <label>Matrícula
-      <input name="matricula" inputmode="numeric" pattern="[0-9]{5,12}" title="Somente números"
-             value="{{ dados.matricula or '' }}" required>
+    <label>Matrícula <small class="dica">(somente números)</small>
+      <input name="matricula" inputmode="numeric" pattern="[0-9]{5,12}" 
+             title="Somente números" data-somente-numeros="12" value="{{ dados.matricula or '' }}" required>
     </label>
     <label>Curso
       <select name="curso" required>
@@ -23,7 +23,29 @@
     <label>Número do currículo
       <input name="curriculo" placeholder="Ex.: 6360/2" value="{{ dados.curriculo or '' }}" required>
     </label>
-    <button class="btn btn-primario" type="submit">Cadastrar e receber o link</button>
+    <details class="ajuda-curriculo">
+      <summary>Onde encontro o número do currículo?</summary>
+      <div class="ajuda-corpo">
+        <ol>
+          <li>Abra o seu <strong>Histórico Escolar</strong>.</li>
+          <li>Procure a seção <strong>“Dados do Vínculo do(a) Discente”</strong>.</li>
+          <li>Copie o valor do campo <strong>“Currículo”</strong> (por exemplo, <code>6360/2</code>).</li>
+        </ol>
+        <div class="mini-historico" aria-hidden="true">
+          <div class="mh-titulo">Histórico Escolar</div>
+          <div class="mh-secao">Dados do Vínculo do(a) Discente</div>
+          <div class="mh-linha"><span>Matrícula:</span> <span>2025187</span></div>
+          <div class="mh-linha"><span>Curso:</span> <span>Engenharia de Software</span></div>
+          <div class="mh-linha mh-destaque"><span>Currículo:</span> <span>6360/2</span><em>← este número</em></div>
+        </div>
+        <p class="dica">Copie exatamente como aparece no histórico, incluindo a barra e o número depois dela.</p>
+      </div>
+    </details>
+    <label>CPF <small class="dica">(somente os 11 números, sem pontos ou traço)</small>
+      <input name="cpf" inputmode="numeric" pattern="[0-9]{11}"  placeholder="Ex.: 12345678901"
+             title="Somente os 11 números do CPF" data-somente-numeros="11" autocomplete="off" required>
+    </label>
+    <button class="btn btn-primario" type="submit">Concluir cadastro</button>
   </form>
   <div class="links"><a href="{{ url_for('login') }}">← Voltar ao login</a></div>
 </section>

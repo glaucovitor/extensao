@@ -1,0 +1,20 @@
+# ============================================================================
+# Configuração do sistema de Certificados de Extensão — FCTE/UnB
+#
+# COMO USAR: copie este arquivo com o nome ".env" (na mesma pasta do app.py)
+# e preencha os valores. O sistema lê o .env sozinho toda vez que inicia.
+#
+# ATENÇÃO: o .env contém senhas. NUNCA envie esse arquivo ao GitHub
+# (o .gitignore do projeto já impede isso) e não compartilhe o conteúdo.
+# Linhas que começam com # são comentários e são ignoradas.
+# ============================================================================
+
+# --- Cloudflare R2 (onde os PDFs ficam guardados) ---------------------------
+R2_ACCOUNT_ID=885f82e89a9aac104d704e7b7d38b155
+R2_BUCKET=certificados-fcte
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+
+# --- Contas de teste (admin@unb.br, teste@unb.br, coordenador@unb.br, aluno 2025999)
+# Use 0 quando o sistema entrar em uso real.
+CONTAS_TESTE=1

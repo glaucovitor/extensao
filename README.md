@@ -14,9 +14,9 @@ pip install -r requirements.txt
 
 Criadas automaticamente na primeira execução:
 
-| Perfil | Login | Senha |
+| Perfil | Login | Senha / CPF |
 |---|---|---|
-| Aluno (João de Teste) | matrícula `2025999` | `123456` |
+| Aluno (João de Teste) | matrícula `2025999` | CPF `52998224725` (fictício) |
 | Membro do colegiado de extensão | `teste@unb.br` | `123456` |
 | Coordenador(a) de curso (Engenharia de Software) | `coordenador@unb.br` | `123456` |
 | Superusuário | `admin@unb.br` | `123456` |
@@ -33,7 +33,7 @@ Todos os servidores entram por http://127.0.0.1:5000/colegiado com e-mail instit
 |---|---|---|
 | Membro do colegiado de extensão | `/colegiado/certificados` | Vê os certificados **agrupados por aluno** e valida (com carga horária e nº da reunião) ou recusa cada um |
 | Coordenador(a) de curso | `/coordenacao` | Vê os certificados **validados** dos cursos que coordena, marca cada um como **lançado no histórico do aluno** e acompanha o total de horas por aluno |
-| Superusuário | `/superusuario` | Cadastra membros do colegiado e coordenadores(as) com senha inicial e desativa acessos. Na aba **Alunos** (`/superusuario/alunos`), cadastra alunos (com ou sem senha inicial), busca alunos e edita nome, matrícula, curso, currículo e senha, além de bloquear ou liberar o acesso |
+| Superusuário | `/superusuario` | Cadastra membros do colegiado e coordenadores(as) com senha inicial e desativa acessos. Na aba **Alunos** (`/superusuario/alunos`), cadastra alunos (com ou sem CPF), busca alunos e edita nome, matrícula, curso, currículo e CPF, além de bloquear ou liberar o acesso |
 
 Cursos que podem ser vinculados a um(a) coordenador(a): Engenharia Automotiva, Engenharia Aeroespacial, Engenharia Eletrônica, Engenharia de Energia e Engenharia de Software (lista fixa em `CURSOS_FCTE`, no `app.py`). O aluno escolhe um desses cursos no primeiro acesso.
 
@@ -47,7 +47,7 @@ python -m flask --app app criar-superusuario nome@unb.br "Nome Completo"
 
 ## Configuração inicial
 
-1. **Alunos** — não há lista prévia: o superusuário pode cadastrar alunos na aba **Alunos**, e qualquer aluno também pode se cadastrar pelo **primeiro acesso**, informando nome completo, matrícula, curso (um dos cinco da FCTE) e número do currículo. O link para criar a senha vai para o e-mail institucional `matrícula@aluno.unb.br`, o que garante que só o dono da matrícula conclui o cadastro. Enquanto a senha não for criada, o aluno pode refazer o primeiro acesso para corrigir os dados.
+1. **Alunos** — não há lista prévia: qualquer aluno se cadastra pelo **primeiro acesso**, informando nome completo, matrícula, curso (um dos cinco da FCTE), número do currículo e CPF. O superusuário também pode cadastrar alunos na aba **Alunos**.
 
 2. **Professores credenciados** (só e-mails `@unb.br`):
 
@@ -59,53 +59,74 @@ python -m flask --app app criar-superusuario nome@unb.br "Nome Completo"
 ## Executar em desenvolvimento
 
 ```bash
-export SECRET_KEY="uma-chave-longa-e-aleatoria"
-export MODO_DEV=1
-flask --app app run --debug
+python app.py
 ```
 
 - Alunos: http://127.0.0.1:5000/
 - Colegiado, coordenação e superusuário: http://127.0.0.1:5000/colegiado
 
-Com `MODO_DEV=1` e sem SMTP configurado, os links de criação/redefinição de senha aparecem na tela e no terminal, em vez de serem enviados por e-mail.
+O sistema **não envia e-mails**. O aluno acompanha o resultado de cada certificado (validado, com horas e reunião, ou recusado, com o motivo) no próprio painel.
 
-## Como funciona a senha do aluno
+## Como funciona o acesso do aluno
 
-- Não há regra de formato para a senha: basta não estar vazia.
-- **Primeiro acesso** e **Esqueci minha senha** enviam um link (válido por 60 min, uso único) para o e-mail institucional `matrícula@aluno.unb.br`. Isso garante que só o dono da matrícula consegue criar a senha.
-- Se o padrão de e-mail for outro, ajuste `EMAIL_ALUNO_PADRAO` (ex.: `{matricula}@aluno.unb.br`).
-- O superusuário pode definir uma nova senha para qualquer aluno na aba **Alunos**. Pelo terminal também é possível apagar a senha (o aluno refaz o primeiro acesso): `flask --app app resetar-senha-aluno 2025187`.
-- Professores também recuperam a senha por link enviado ao e-mail institucional.
+- O aluno entra com **matrícula e CPF**, sem senha. Não há opção de "esqueci minha senha".
+- Matrícula e CPF são aceitos **somente com números**. No navegador, letras, pontos, traços e barras são descartados ao digitar ou colar; o servidor também recusa qualquer outro caractere.
+- O CPF passa pela conferência dos dígitos verificadores e fica guardado no banco de forma cifrada (hash), como uma senha. Por isso ele não aparece em nenhuma tela; o superusuário pode apenas informar um CPF novo.
+- Uma matrícula com cadastro concluído não pode ser recadastrada pelo primeiro acesso. Em caso de erro no CPF, o superusuário corrige na aba **Alunos**.
+- Alunos cadastrados antes desta versão (sem CPF) completam o cadastro pelo primeiro acesso.
+- Professores e coordenadores entram com e-mail institucional e senha. Se esquecerem a senha, um superusuário a redefine na página de administração (no próximo acesso, a pessoa cria uma senha nova). Um superusuário que esqueça a própria senha pode redefini-la pelo terminal com `python -m flask --app app criar-superusuario email@unb.br "Nome"`.
+
+## Arquivo de configuração `.env`
+
+As senhas e chaves ficam num arquivo chamado `.env`, na mesma pasta do `app.py`, sem precisar digitar nada no terminal:
+
+1. Faça uma cópia do arquivo `.env.exemplo` e renomeie a cópia para `.env`.
+2. Abra o `.env` no Bloco de Notas (ou no VS Code), preencha os valores e salve.
+3. Inicie o sistema normalmente (`python app.py`). Ele lê o `.env` sozinho.
+
+O `.env` está no `.gitignore` e **não deve ir para o GitHub**. Se uma variável também estiver definida no sistema operacional, o valor do sistema tem prioridade. A `SECRET_KEY` não precisa ser preenchida: se faltar, o sistema cria uma e a guarda em `instance/secret_key`.
 
 ## Variáveis de ambiente
 
+Todas as variáveis abaixo podem ser colocadas no `.env`.
+
 | Variável | Padrão | Descrição |
 |---|---|---|
-| `SECRET_KEY` | aleatória a cada início | **Obrigatória em produção.** Sem ela, sessões e links caem a cada reinício. |
+| `SECRET_KEY` | criada e guardada em `instance/secret_key` | Chave das sessões |
 | `DATABASE` | `instance/certificados.db` | Banco SQLite |
-| `UPLOAD_FOLDER` | `uploads/` | Onde os PDFs são guardados |
-| `EMAIL_ALUNO_PADRAO` | `{matricula}@aluno.unb.br` | E-mail institucional do aluno |
+| `UPLOAD_FOLDER` | `uploads/` | Onde os PDFs são guardados quando o R2 não está configurado |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | — | Guardam os PDFs no Cloudflare R2 (ver seção abaixo) |
 | `DOMINIO_PROFESSOR` | `unb.br` | Domínio exigido para professores |
-| `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`, `MAIL_USE_TLS` | — | SMTP para envio dos links |
-| `MODO_DEV` | `0` | Mostra links na tela quando não há SMTP |
 | `CONTAS_TESTE` | `1` | Ativa as contas de teste (use `0` em produção) |
 | `SESSION_COOKIE_SECURE` | `0` | Use `1` atrás de HTTPS |
+
+## Guardar os PDFs no Cloudflare R2
+
+Com as quatro variáveis `R2_*` definidas, os PDFs vão para um bucket privado do Cloudflare R2, e o servidor guarda só o banco de dados. Os PDFs continuam passando pelo sistema, que confere quem pode ver cada um. Sem essas variáveis, o sistema usa a pasta `uploads/`.
+
+1. No painel da Cloudflare, abra **R2 Object Storage** e ative o serviço (a Cloudflare pode pedir um cartão para verificação; o plano gratuito inclui 10 GB).
+2. Crie um bucket, por exemplo `certificados-fcte`. **Não** ative o acesso público.
+3. Em **Manage R2 API Tokens**, crie um token com permissão **Object Read & Write**, restrito a esse bucket. Copie o *Access Key ID* e o *Secret Access Key* (o segredo aparece uma única vez).
+4. Copie o **Account ID**, que aparece no painel do R2.
+5. Preencha `R2_ACCESS_KEY_ID` e `R2_SECRET_ACCESS_KEY` no arquivo `.env` (ver "Arquivo de configuração .env") e teste: `python -m flask --app app testar-armazenamento`.
+6. Se já houver PDFs na pasta `uploads/`, copie-os para o R2 uma vez: `python -m flask --app app enviar-pdfs-para-r2`.
 
 ## Produção
 
 ```bash
-export SECRET_KEY=...  MAIL_SERVER=...  SESSION_COOKIE_SECURE=1
+export SESSION_COOKIE_SECURE=1   # demais configurações no .env
 gunicorn -w 3 -b 127.0.0.1:8000 app:app
 ```
 
-Coloque um Nginx (ou similar) com HTTPS na frente e configure `client_max_body_size 26M;`. Faça backup periódico de `instance/certificados.db` e da pasta `uploads/`.
+Coloque um Nginx (ou similar) com HTTPS na frente e configure `client_max_body_size 26M;`. Faça backup periódico de `instance/certificados.db` e, se não usar o R2, da pasta `uploads/`.
 
 ## Regras implementadas
 
 - Upload apenas de PDF (extensão + assinatura `%PDF`), até 25 MB, com horas, data de início/término e tipo de atuação.
-- Certificados de **ouvinte** são bloqueados no navegador e no servidor.
+- Os arquivos enviados são renomeados para **`<matrícula>_<curso>_<nº>.pdf`** (ex.: `2025999_Engenharia_de_Software_1.pdf`), com o curso sem acentos. O número de cada certificado é fixo: excluir um não muda o nome dos outros. Se o superusuário mudar a matrícula ou o curso do aluno, os arquivos são renomeados automaticamente. Arquivos enviados em versões anteriores são renomeados na primeira execução desta versão.
+- Só são aceitos certificados em que o aluno atuou como **membro da equipe organizadora**; certificados de **ouvinte** são bloqueados no navegador e no servidor.
+- O aluno pode **excluir** certificados aguardando avaliação ou recusados (o PDF é apagado). Certificados **validados** não podem ser excluídos.
 - Status: *Aguardando avaliação do colegiado de extensão*, *Validado* ou *Recusado* (com motivo obrigatório, exibido ao aluno).
 - Ao validar, o professor informa a **carga horária validada** (até o total declarado pelo aluno) e o **número da reunião do colegiado de extensão**, que fica visível ao aluno; o painel do aluno soma só as horas validadas.
-- Ao validar ou recusar, o aluno recebe um **e-mail** com o resultado, a carga horária validada ou o motivo da recusa.
 - Painel do professor com filtro por curso e por situação; registra quem avaliou e quando; permite reavaliar.
 - Senhas com hash, proteção CSRF em todos os formulários, PDFs acessíveis só pelo dono e por professores.

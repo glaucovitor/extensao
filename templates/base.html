@@ -29,6 +29,21 @@
   <footer class="rodape">
     Faculdade de Ciências e Tecnologias em Engenharia · Universidade de Brasília
   </footer>
+  <script>
+    // Campos marcados com data-somente-numeros aceitam apenas dígitos
+    // (o que não for número é descartado ao digitar ou colar).
+    document.querySelectorAll('input[data-somente-numeros]').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var limpo = el.value.replace(/\D/g, '');
+        var max = parseInt(el.dataset.somenteNumeros, 10);
+        if (max > 0) limpo = limpo.slice(0, max);
+        if (limpo !== el.value) el.value = limpo;
+      });
+      el.addEventListener('keydown', function (e) {
+        if (e.key.length === 1 && !/[0-9]/.test(e.key) && !e.ctrlKey && !e.metaKey) e.preventDefault();
+      });
+    });
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
